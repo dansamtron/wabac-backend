@@ -1,12 +1,12 @@
 # WABAC (WhatsApp Business & AI Commerce) Backend
 
-High-performance, multi-tenant conversational commerce backend powering WhatsApp-first merchant storefronts, automated AI sales agents, real-time catalog & inventory management, automated Paystack payment reconciliation, and platform revenue administration.
+High-performance, multi-tenant conversational commerce backend powering WhatsApp-first merchant storefronts, automated AI sales agents, real-time catalog & inventory management, automated Paystack payment reconciliation, platform revenue administration, seller financial settlements, and automated marketing campaigns.
 
 ---
 
 ## 🌟 Architecture & Phases
 
-The system is built in 8 modular phases following domain-driven design, multi-tenant isolation, and resilient architectural standards:
+The system is built in 10 modular phases following domain-driven design, multi-tenant isolation, and resilient architectural standards:
 
 ### Phase 1: Base Architecture & Infrastructure
 - **Core Server**: Node.js & Express cleanly separated in `server.js` (no root `index.js`).
@@ -58,6 +58,19 @@ The system is built in 8 modular phases following domain-driven design, multi-te
 - **Revenue Ledger**: Detailed commission breakdown and transaction history (`GET /api/admin/revenue`).
 - **Dynamic Fee Configuration**: Configurable platform percentage and fixed cut engine (`GET /api/admin/fee`, `PATCH /api/admin/fee`).
 
+### Phase 9: Seller Analytics Dashboard, Payouts & Data Exports
+- **Seller Analytics**: Overview KPIs (Total Sales, Net Earnings, AOV, Orders breakdown, Customer retention rate) (`GET /api/analytics/overview`).
+- **Sales Trends & Rankings**: Time-series revenue trends (`GET /api/analytics/trends`) and top-selling products by quantity and revenue (`GET /api/analytics/top-products`).
+- **Payout & Settlement Engine**: Bank account verification (`POST /api/payouts/resolve-account`), available balance calculation, withdrawal requests (`POST /api/payouts/request`), and admin disbursement workflow (`GET /api/admin/payouts`, `PATCH /api/admin/payouts/:id/process`).
+- **CSV Data Exports**: Downloadable CSV reports for order history (`GET /api/analytics/export/orders`) and financial revenue ledgers (`GET /api/analytics/export/revenue`).
+
+### Phase 10: Automated WhatsApp Notifications, Marketing Campaigns & CRM Automation
+- **Event-Driven Transactional Notifications**: Automated WhatsApp messages sent on Order Creation, Order Status Updates (`Shipped`, `Delivered`), and Payment Receipts.
+- **Audience Segmentation**: Filter customers into actionable segments (`ALL`, `VIP`, `INACTIVE`, `NEW`) with live preview (`GET /api/campaigns/segments/:segment/preview`).
+- **Broadcast Marketing Campaigns**: Create and dispatch personalized broadcast messages with variable interpolation (`{{name}}`, `{{store}}`) (`POST /api/campaigns`, `POST /api/campaigns/:id/send`).
+- **Abandoned Order Recovery Engine**: Detects unpaid orders and automatically dispatches personalized WhatsApp checkout reminders with direct payment links (`POST /api/campaigns/abandoned-orders/trigger`).
+- **WhatsApp Opt-Out Compliance**: Immediate handling of `STOP` / `UNSUBSCRIBE` and `START` keywords to respect customer preferences and regulatory standards.
+
 ---
 
 ## 🛠️ API Routes Overview
@@ -89,18 +102,35 @@ The system is built in 8 modular phases following domain-driven design, multi-te
 | `POST` | `/api/payments/initialize` | Initialize Paystack payment | Bearer Token |
 | `POST` | `/api/payments/verify/:reference` | Verify payment & reconcile order | Bearer Token |
 | `POST` | `/api/payments/webhook` | Paystack automated webhook | Signature Verified |
+| `GET` | `/api/analytics/overview` | Seller sales & earnings overview | Bearer Token |
+| `GET` | `/api/analytics/trends` | Time-series sales trends | Bearer Token |
+| `GET` | `/api/analytics/top-products`| Top-selling products rankings | Bearer Token |
+| `GET` | `/api/analytics/customers`| Customer lifetime spend & retention | Bearer Token |
+| `GET` | `/api/analytics/export/orders`| Export orders to CSV format | Bearer Token |
+| `GET` | `/api/analytics/export/revenue`| Export revenue ledger to CSV format | Bearer Token |
+| `GET` | `/api/payouts/balance` | Get available settlement balance | Bearer Token |
+| `POST` | `/api/payouts/resolve-account`| Resolve 10-digit NUBAN bank account | Bearer Token |
+| `POST` | `/api/payouts/request` | Submit withdrawal request | Bearer Token |
+| `GET` | `/api/payouts` | List seller payout history | Bearer Token |
+| `POST` | `/api/campaigns` | Create marketing broadcast campaign | Bearer Token |
+| `GET` | `/api/campaigns` | List seller marketing campaigns | Bearer Token |
+| `GET` | `/api/campaigns/segments/:seg/preview`| Preview audience for segment | Bearer Token |
+| `POST` | `/api/campaigns/:id/send`| Dispatch broadcast campaign | Bearer Token |
+| `POST` | `/api/campaigns/abandoned-orders/trigger`| Trigger abandoned order reminders | Bearer Token |
 | `GET` | `/api/admin/stats` | Platform performance KPIs | Admin Only |
 | `GET` | `/api/admin/sellers` | Manage platform sellers | Admin Only |
 | `PATCH` | `/api/admin/sellers/:id/status`| Suspend or activate seller | Admin Only |
 | `GET` | `/api/admin/revenue` | Platform revenue & commission ledger| Admin Only |
 | `GET` | `/api/admin/fee` | Get platform fee configuration | Admin Only |
 | `PATCH` | `/api/admin/fee` | Update platform commission rate | Admin Only |
+| `GET` | `/api/admin/payouts` | List all platform payout requests | Admin Only |
+| `PATCH` | `/api/admin/payouts/:id/process`| Approve or reject seller payout | Admin Only |
 
 ---
 
 ## 🧪 Testing
 
-The repository contains end-to-end automated integration tests for all 8 phases.
+The repository contains end-to-end automated integration tests for all 10 phases.
 
 Run the complete test suite:
 ```bash
@@ -117,6 +147,8 @@ node tests/phase5.test.js
 node tests/phase6.test.js
 node tests/phase7.test.js
 node tests/phase8.test.js
+node tests/phase9.test.js
+node tests/phase10.test.js
 ```
 
 ---

@@ -53,6 +53,11 @@ const customerSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    marketingOptOut: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
   },
   {
     timestamps: true,

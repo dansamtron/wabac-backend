@@ -4,6 +4,7 @@
  */
 
 const businessService = require('../sellers/businessService');
+const customerService = require('../customers/customerService');
 const webhookService = require('./webhookService');
 const messageService = require('./messageService');
 const aiService = require('../ai/aiService');
@@ -198,17 +199,32 @@ const whatsappService = {
     let toolCalls = null;
     let isDeterministic = false;
 
-    try {
-      const aiRes = await aiService.chat({
-        sellerId,
-        customerPhone,
-        body,
-      });
-      replyText = aiRes.reply;
-      toolCalls = aiRes.toolCalls;
-    } catch (err) {
-      replyText = await webhookService.deterministicReply(sellerId, body);
+    const cleanLower = body.trim().toLowerCase();
+    if (['stop', 'unsubscribe', 'optout', 'opt-out', 'cancel'].includes(cleanLower)) {
+      await customerService.setOptOut(customerPhone, sellerId, true);
+      const biz = await businessService.getBySellerId(sellerId);
+      const store = (biz && biz.name) || 'Our Store';
+      replyText = `You have been successfully unsubscribed from marketing messages from ${store}. You will still receive essential order updates. Text START anytime to re-subscribe.`;
       isDeterministic = true;
+    } else if (['start', 'subscribe', 'unstop'].includes(cleanLower)) {
+      await customerService.setOptOut(customerPhone, sellerId, false);
+      const biz = await businessService.getBySellerId(sellerId);
+      const store = (biz && biz.name) || 'Our Store';
+      replyText = `Welcome back! You have been re-subscribed to marketing updates from ${store}.`;
+      isDeterministic = true;
+    } else {
+      try {
+        const aiRes = await aiService.chat({
+          sellerId,
+          customerPhone,
+          body,
+        });
+        replyText = aiRes.reply;
+        toolCalls = aiRes.toolCalls;
+      } catch (err) {
+        replyText = await webhookService.deterministicReply(sellerId, body);
+        isDeterministic = true;
+      }
     }
 
     // 3. Record outbound response

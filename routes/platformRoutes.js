@@ -27,6 +27,8 @@ router.get('/customers', adminController.listAllCustomers);
 
 // Financial reports & Commission configuration
 router.get('/revenue', adminController.getRevenueBreakdown);
+router.get('/payouts', adminController.listPayouts);
+router.patch('/payouts/:id/process', adminController.processPayout);
 router.get('/whatsapp', adminController.getWhatsAppStats);
 router.get('/fee', adminController.getFeeConfig);
 router.patch('/fee', adminController.updateFeeConfig);

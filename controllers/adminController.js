@@ -17,6 +17,7 @@ const orderService = require('../services/orders/orderService');
 const customerService = require('../services/customers/customerService');
 const messageService = require('../services/whatsapp/messageService');
 const paymentService = require('../services/payments/paymentService');
+const payoutService = require('../services/payouts/payoutService');
 const logger = require('../utils/logger');
 
 /**
@@ -358,6 +359,36 @@ const adminController = {
     try {
       const cfg = await paymentService.setFeeConfig(req.body);
       res.status(200).json(cfg);
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  /**
+   * @route   GET /api/admin/payouts
+   * @desc    List all platform seller payout requests
+   * @access  Private (Admin)
+   */
+  async listPayouts(req, res, next) {
+    try {
+      const payouts = await payoutService.listAll();
+      res.status(200).json(payouts);
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  /**
+   * @route   PATCH /api/admin/payouts/:id/process
+   * @desc    Approve or reject a seller payout request
+   * @access  Private (Admin)
+   */
+  async processPayout(req, res, next) {
+    try {
+      const { id } = req.params;
+      const { status, rejectionReason } = req.body;
+      const updated = await payoutService.processPayout(id, { status, rejectionReason });
+      res.status(200).json(updated);
     } catch (error) {
       next(error);
     }

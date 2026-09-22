@@ -18,6 +18,9 @@ const whatsappWebhook = require('../webhooks/whatsappWebhook');
 const paymentRoutes = require('./paymentRoutes');
 const platformRoutes = require('./platformRoutes');
 const aiRoutes = require('./aiRoutes');
+const analyticsRoutes = require('./analyticsRoutes');
+const payoutRoutes = require('./payoutRoutes');
+const campaignRoutes = require('./campaignRoutes');
 
 // Root & System Health
 router.use('/', rootRoutes);
@@ -36,6 +39,9 @@ router.use('/webhooks/whatsapp', whatsappWebhook);
 router.use('/api/webhooks/whatsapp', whatsappWebhook);
 router.use('/api/payments', paymentRoutes);
 router.use('/api/ai', aiRoutes);
+router.use('/api/analytics', analyticsRoutes);
+router.use('/api/payouts', payoutRoutes);
+router.use('/api/campaigns', campaignRoutes);
 router.use('/api/admin', platformRoutes);
 router.use('/api/platform', platformRoutes);
 

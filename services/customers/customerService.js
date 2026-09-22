@@ -178,6 +178,32 @@ const customerService = {
     }
   },
 
+  /**
+   * Update marketing opt-out preference
+   */
+  async setOptOut(phone, sellerId, optOut = true) {
+    const cleanPhone = normalizePhone(phone);
+    if (isDbConnected()) {
+      const query = { sellerId, $or: [{ phone: cleanPhone }, { phone: phone.trim() }] };
+      const updated = await Customer.findOneAndUpdate(
+        query,
+        { $set: { marketingOptOut: !!optOut, updatedAt: new Date() } },
+        { new: true }
+      );
+      return updated ? updated.toJSON() : null;
+    }
+
+    const list = Array.from(memoryCustomers.values()).filter((c) => c.sellerId === sellerId);
+    const c = list.find((cust) => cust.phone === cleanPhone || cust.phone === phone.trim());
+    if (c) {
+      c.marketingOptOut = !!optOut;
+      c.updatedAt = new Date().toISOString();
+      memoryCustomers.set(c.id, c);
+      return c;
+    }
+    return null;
+  },
+
   getMemoryStore() {
     return memoryCustomers;
   },

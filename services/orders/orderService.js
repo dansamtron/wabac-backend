@@ -13,6 +13,14 @@ const businessService = require('../sellers/businessService');
 const { sanitize, normalizePhone } = require('../../utils/validators');
 const logger = require('../../utils/logger');
 
+function getNotificationService() {
+  try {
+    return require('../notifications/notificationService');
+  } catch {
+    return null;
+  }
+}
+
 // In-Memory store for development/testing when MongoDB daemon is not running
 const memoryOrders = new Map();
 const memoryIdempotency = new Map();
@@ -165,7 +173,10 @@ const orderService = {
       const order = await Order.create(orderData);
       await customerService.incrementOnOrder(customer.id, sellerId, total);
       logger.info('Order created successfully (DB):', { id: order._id.toString(), sellerId, total });
-      return order.toJSON();
+      const orderJson = order.toJSON();
+      const ns = getNotificationService();
+      if (ns) ns.sendOrderConfirmation(orderJson).catch(() => {});
+      return orderJson;
     }
 
     // In-memory fallback
@@ -186,6 +197,8 @@ const orderService = {
 
     await customerService.incrementOnOrder(customer.id, sellerId, total);
     logger.info('Order created successfully (Memory):', { id, sellerId, total });
+    const ns = getNotificationService();
+    if (ns) ns.sendOrderConfirmation(memOrder).catch(() => {});
     return memOrder;
   },
 
@@ -233,7 +246,9 @@ const orderService = {
    */
   async getById(id, sellerId) {
     if (isDbConnected()) {
-      const order = await Order.findOne({ _id: id, sellerId });
+      const query = { _id: id };
+      if (sellerId) query.sellerId = sellerId;
+      const order = await Order.findOne(query);
       if (!order) {
         const err = new Error('Order not found');
         err.statusCode = 404;
@@ -243,7 +258,7 @@ const orderService = {
     }
 
     const order = memoryOrders.get(id);
-    if (!order || order.sellerId !== sellerId) {
+    if (!order || (sellerId && order.sellerId !== sellerId)) {
       const err = new Error('Order not found');
       err.statusCode = 404;
       throw err;
@@ -274,7 +289,10 @@ const orderService = {
         throw err;
       }
       logger.info('Order status updated (DB):', { id, orderStatus });
-      return order.toJSON();
+      const orderJson = order.toJSON();
+      const ns = getNotificationService();
+      if (ns) ns.sendOrderStatusUpdate(orderJson, orderStatus).catch(() => {});
+      return orderJson;
     }
 
     const order = memoryOrders.get(id);
@@ -287,6 +305,8 @@ const orderService = {
     order.updatedAt = new Date().toISOString();
     memoryOrders.set(id, order);
     logger.info('Order status updated (Memory):', { id, orderStatus });
+    const ns = getNotificationService();
+    if (ns) ns.sendOrderStatusUpdate(order, orderStatus).catch(() => {});
     return order;
   },
 

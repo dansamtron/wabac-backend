@@ -10,6 +10,14 @@ const { isDbConnected } = require('../../config/db');
 const orderService = require('../orders/orderService');
 const logger = require('../../utils/logger');
 
+function getNotificationService() {
+  try {
+    return require('../notifications/notificationService');
+  } catch {
+    return null;
+  }
+}
+
 // In-Memory store for development/testing when MongoDB daemon is not running
 const memoryPayments = new Map();
 const memoryIdempotency = new Map();
@@ -236,13 +244,16 @@ const paymentService = {
       await transaction.save();
 
       // Automatically reconcile corresponding order
+      let recOrder = null;
       try {
-        await orderService.updatePaymentStatus(transaction.orderId, transaction.sellerId, 'Paid', reference);
+        recOrder = await orderService.updatePaymentStatus(transaction.orderId, transaction.sellerId, 'Paid', reference);
       } catch (err) {
         logger.warn('Order reconciliation error during payment verification:', { error: err.message });
       }
 
       logger.info('Payment verified & order reconciled (DB):', { reference, orderId: transaction.orderId });
+      const ns = getNotificationService();
+      if (ns) ns.sendPaymentReceipt(transaction.toJSON(), recOrder).catch(() => {});
       return transaction.toJSON();
     }
 
@@ -259,13 +270,16 @@ const paymentService = {
     transaction.updatedAt = transaction.verifiedAt;
     memoryPayments.set(reference, transaction);
 
+    let memRecOrder = null;
     try {
-      await orderService.updatePaymentStatus(transaction.orderId, transaction.sellerId, 'Paid', reference);
+      memRecOrder = await orderService.updatePaymentStatus(transaction.orderId, transaction.sellerId, 'Paid', reference);
     } catch (err) {
       logger.warn('Order reconciliation error (Memory):', { error: err.message });
     }
 
     logger.info('Payment verified & order reconciled (Memory):', { reference, orderId: transaction.orderId });
+    const nsMem = getNotificationService();
+    if (nsMem) nsMem.sendPaymentReceipt(transaction, memRecOrder).catch(() => {});
     return transaction;
   },
 
