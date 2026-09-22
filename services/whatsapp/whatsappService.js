@@ -6,6 +6,7 @@
 const businessService = require('../sellers/businessService');
 const webhookService = require('./webhookService');
 const messageService = require('./messageService');
+const aiService = require('../ai/aiService');
 const Business = require('../../models/Business');
 const { isDbConnected } = require('../../config/db');
 const { sanitize, normalizePhone } = require('../../utils/validators');
@@ -192,8 +193,23 @@ const whatsappService = {
       status: 'received',
     });
 
-    // 2. Generate authoritative reply (deterministic rule-based engine)
-    const replyText = await webhookService.deterministicReply(sellerId, body);
+    // 2. Generate authoritative reply (AI agent with fallback to deterministic engine)
+    let replyText = '';
+    let toolCalls = null;
+    let isDeterministic = false;
+
+    try {
+      const aiRes = await aiService.chat({
+        sellerId,
+        customerPhone,
+        body,
+      });
+      replyText = aiRes.reply;
+      toolCalls = aiRes.toolCalls;
+    } catch (err) {
+      replyText = await webhookService.deterministicReply(sellerId, body);
+      isDeterministic = true;
+    }
 
     // 3. Record outbound response
     const outbound = await messageService.saveMessage({
@@ -202,7 +218,8 @@ const whatsappService = {
       customerPhone,
       direction: 'outbound',
       body: replyText,
-      deterministic: true,
+      deterministic: isDeterministic,
+      toolCalls,
       status: 'sent',
     });
 
@@ -216,7 +233,7 @@ const whatsappService = {
     return {
       inbound,
       outbound,
-      toolCalls: null,
+      toolCalls,
     };
   },
 

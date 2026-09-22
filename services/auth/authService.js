@@ -16,11 +16,11 @@ const memoryUsers = new Map();
 const memoryBusinesses = new Map();
 
 // Seed initial admin & platform owner accounts for dev/testing
-async function seedDefaultAccounts() {
+function seedDefaultAccounts() {
   if (memoryUsers.size > 0) return;
 
-  const adminPasswordHash = await bcrypt.hash('Admin123!', 10);
-  const ownerPasswordHash = await bcrypt.hash('Owner123!', 10);
+  const adminPasswordHash = bcrypt.hashSync('Admin123!', 10);
+  const ownerPasswordHash = bcrypt.hashSync('Owner123!', 10);
 
   const admin = {
     id: 'seller_admin',

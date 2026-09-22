@@ -73,10 +73,12 @@ const productService = {
 
     if (search) {
       const q = sanitize(search, 100).toLowerCase();
+      const words = q.split(/\s+/).filter((w) => w.length > 2 && !['the', 'for', 'and', 'with', 'item'].includes(w));
       items = items.filter(
         (p) =>
           p.name.toLowerCase().includes(q) ||
           p.description.toLowerCase().includes(q) ||
+          (words.length > 0 && words.every((w) => p.name.toLowerCase().includes(w) || p.description.toLowerCase().includes(w))) ||
           (p.variants || []).some(
             (v) =>
               (v.sku && v.sku.toLowerCase().includes(q)) ||
