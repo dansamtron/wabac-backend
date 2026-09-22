@@ -60,6 +60,32 @@ async function protect(req, res, next) {
 }
 
 /**
+ * Optional authentication: attaches user if token is valid, proceeds without error otherwise
+ */
+async function optionalAuth(req, res, next) {
+  let token = null;
+
+  if (req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
+    token = req.headers.authorization.split(' ')[1];
+  } else if (req.cookies && req.cookies.token) {
+    token = req.cookies.token;
+  }
+
+  if (!token) return next();
+
+  try {
+    const decoded = verifyToken(token);
+    const user = await authService.findUserById(decoded.id);
+    if (user && user.isActive !== false) {
+      req.user = user;
+      req.seller = user;
+      req.sellerId = (user._id ? user._id.toString() : user.id).toString();
+    }
+  } catch {}
+  next();
+}
+
+/**
  * Role-based access control middleware
  * @param  {...string} roles - e.g. 'admin', 'platform_owner', 'seller'
  */
@@ -77,5 +103,6 @@ function authorizeRoles(...roles) {
 
 module.exports = {
   protect,
+  optionalAuth,
   authorizeRoles,
 };

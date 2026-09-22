@@ -14,6 +14,7 @@ const productRoutes = require('./productRoutes');
 const orderRoutes = require('./orderRoutes');
 const customerRoutes = require('./customerRoutes');
 const whatsappRoutes = require('./whatsappRoutes');
+const whatsappWebhook = require('../webhooks/whatsappWebhook');
 const paymentRoutes = require('./paymentRoutes');
 const platformRoutes = require('./platformRoutes');
 
@@ -30,6 +31,8 @@ router.use('/api/products', productRoutes);
 router.use('/api/orders', orderRoutes);
 router.use('/api/customers', customerRoutes);
 router.use('/api/whatsapp', whatsappRoutes);
+router.use('/webhooks/whatsapp', whatsappWebhook);
+router.use('/api/webhooks/whatsapp', whatsappWebhook);
 router.use('/api/payments', paymentRoutes);
 router.use('/api/admin', platformRoutes);
 router.use('/api/platform', platformRoutes);
