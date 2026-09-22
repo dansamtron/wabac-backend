@@ -4,7 +4,7 @@
  */
 
 const http = require('http');
-const app = require('../index');
+const app = require('../server');
 const { isEmail, isStrongPassword, isNigerianPhone, normalizePhone, sanitize, clampRequestSize } = require('../utils/validators');
 const { generateToken, verifyToken } = require('../utils/generateToken');
 

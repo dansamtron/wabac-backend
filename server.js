@@ -1,44 +1,80 @@
 /**
- * HTTP Server Entry Point for WABAC Backend
+ * Server Entry Point for WABAC Backend
+ * Assembles modular middleware, configurations, routes, and bootstraps the HTTP listener
  */
 
 require('dotenv').config();
 const http = require('http');
-const app = require('./index');
+const express = require('express');
+const cors = require('cors');
+const cookieParser = require('cookie-parser');
+
+const corsOptions = require('./config/corsOptions');
+const requestLogger = require('./middleware/requestLogger');
+const routes = require('./routes/index');
+const { notFound, errorHandler } = require('./middleware/errorMiddleware');
 const { connectDB } = require('./config/db');
 const logger = require('./utils/logger');
+
+const app = express();
+
+// Apply modular CORS policy
+app.use(cors(corsOptions));
+
+// Body parsing with 500KB constraint
+app.use(express.json({ limit: '500kb' }));
+app.use(express.urlencoded({ extended: true, limit: '500kb' }));
+app.use(cookieParser());
+
+// Request logging middleware
+app.use(requestLogger);
+
+// Mount centralized routes
+app.use(routes);
+
+// Centralized error handling
+app.use(notFound);
+app.use(errorHandler);
 
 const PORT = parseInt(process.env.PORT, 10) || 5000;
 const HOST = '0.0.0.0';
 
-// Connect to MongoDB
-connectDB().catch((err) => {
-  logger.error('Database initialization encountered an error:', { error: err.message });
-});
+let server = null;
 
-const server = http.createServer(app);
-
-server.listen(PORT, HOST, () => {
-  logger.info(`Server running in ${process.env.NODE_ENV || 'development'} mode on http://${HOST}:${PORT}`);
-  logger.info(`Health check available at http://${HOST}:${PORT}/health`);
-});
-
-// Graceful shutdown handling
-function handleShutdown(signal) {
-  logger.info(`Received ${signal}. Shutting down gracefully...`);
-  server.close(() => {
-    logger.info('HTTP server closed.');
-    process.exit(0);
+// Only start the server if this file is executed directly (not required as a module in tests)
+if (require.main === module) {
+  connectDB().catch((err) => {
+    logger.error('Database connection error during boot:', { error: err.message });
   });
 
-  // Force shutdown after 10s if connections remain open
-  setTimeout(() => {
-    logger.error('Forcefully terminating process after timeout');
-    process.exit(1);
-  }, 10000);
+  server = http.createServer(app);
+
+  server.listen(PORT, HOST, () => {
+    logger.info(`WABAC Server running in ${process.env.NODE_ENV || 'development'} mode on http://${HOST}:${PORT}`);
+    logger.info(`Health check live at http://${HOST}:${PORT}/health`);
+  });
+
+  // Graceful shutdown
+  const handleShutdown = (signal) => {
+    logger.info(`Received ${signal}. Shutting down gracefully...`);
+    if (server) {
+      server.close(() => {
+        logger.info('HTTP server closed.');
+        process.exit(0);
+      });
+    } else {
+      process.exit(0);
+    }
+
+    setTimeout(() => {
+      logger.error('Forcefully terminating process after timeout');
+      process.exit(1);
+    }, 10000);
+  };
+
+  process.on('SIGTERM', () => handleShutdown('SIGTERM'));
+  process.on('SIGINT', () => handleShutdown('SIGINT'));
 }
 
-process.on('SIGTERM', () => handleShutdown('SIGTERM'));
-process.on('SIGINT', () => handleShutdown('SIGINT'));
-
-module.exports = server;
+module.exports = app;
+module.exports.server = server;
