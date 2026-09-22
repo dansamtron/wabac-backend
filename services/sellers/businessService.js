@@ -64,6 +64,7 @@ const businessService = {
   async update(sellerId, payload) {
     const allowedFields = [
       'name',
+      'slug',
       'description',
       'phone',
       'email',

@@ -34,6 +34,7 @@ router.get('/api', (req, res) => {
       analytics: '/api/analytics',
       payouts: '/api/payouts',
       campaigns: '/api/campaigns',
+      storefront: '/api/storefront',
       admin: '/api/admin',
       platform: '/api/platform',
       health: '/api/health',

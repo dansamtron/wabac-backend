@@ -18,6 +18,12 @@ const businessSchema = new mongoose.Schema(
       trim: true,
       maxlength: [100, 'Business name cannot exceed 100 characters'],
     },
+    slug: {
+      type: String,
+      trim: true,
+      lowercase: true,
+      index: true,
+    },
     description: {
       type: String,
       trim: true,

@@ -11,12 +11,17 @@ const cookieParser = require('cookie-parser');
 
 const corsOptions = require('./config/corsOptions');
 const requestLogger = require('./middleware/requestLogger');
+const securityHeaders = require('./middleware/securityMiddleware');
+const sanitizeInput = require('./middleware/sanitizationMiddleware');
 const routes = require('./routes/index');
 const { notFound, errorHandler } = require('./middleware/errorMiddleware');
 const { connectDB } = require('./config/db');
 const logger = require('./utils/logger');
 
 const app = express();
+
+// Apply production security headers (CSP, HSTS, X-Frame-Options, etc.)
+app.use(securityHeaders);
 
 // Apply modular CORS policy
 app.use(cors(corsOptions));
@@ -25,6 +30,9 @@ app.use(cors(corsOptions));
 app.use(express.json({ limit: '500kb' }));
 app.use(express.urlencoded({ extended: true, limit: '500kb' }));
 app.use(cookieParser());
+
+// Defend against NoSQL query operator injection
+app.use(sanitizeInput);
 
 // Request logging middleware
 app.use(requestLogger);

@@ -1,12 +1,12 @@
 # WABAC (WhatsApp Business & AI Commerce) Backend
 
-High-performance, multi-tenant conversational commerce backend powering WhatsApp-first merchant storefronts, automated AI sales agents, real-time catalog & inventory management, automated Paystack payment reconciliation, platform revenue administration, seller financial settlements, and automated marketing campaigns.
+High-performance, multi-tenant conversational commerce backend powering WhatsApp-first merchant storefronts, automated AI sales agents, real-time catalog & inventory management, automated Paystack payment reconciliation, platform revenue administration, seller financial settlements, automated marketing campaigns, public storefronts & SEO discoverability, and production-grade security hardening.
 
 ---
 
 ## 🌟 Architecture & Phases
 
-The system is built in 10 modular phases following domain-driven design, multi-tenant isolation, and resilient architectural standards:
+The complete system architecture is implemented across 12 modular phases following domain-driven design, multi-tenant isolation, and resilient architectural standards:
 
 ### Phase 1: Base Architecture & Infrastructure
 - **Core Server**: Node.js & Express cleanly separated in `server.js` (no root `index.js`).
@@ -71,18 +71,34 @@ The system is built in 10 modular phases following domain-driven design, multi-t
 - **Abandoned Order Recovery Engine**: Detects unpaid orders and automatically dispatches personalized WhatsApp checkout reminders with direct payment links (`POST /api/campaigns/abandoned-orders/trigger`).
 - **WhatsApp Opt-Out Compliance**: Immediate handling of `STOP` / `UNSUBSCRIBE` and `START` keywords to respect customer preferences and regulatory standards.
 
+### Phase 11: Public Storefront & Discoverability Endpoints (Catalog & SEO Support)
+- **Storefront Discovery & Slug Routing**: Public storefront access by unique `sellerId` or customized handle/slug (`GET /api/storefront/:identifier`).
+- **Public Catalog Browsing**: Category filtering, keyword search, price range filtering, in-stock badges, sorting (`price-asc`, `price-desc`, `newest`), and pagination (`GET /api/storefront/:identifier/products`).
+- **Public Product Detail & Recommendations**: Item attributes, variant selections, and related category products (`GET /api/storefront/:identifier/products/:productId`).
+- **Social Sharing & OpenGraph/Twitter Cards**: Dynamic metadata generator for WhatsApp link unfurling and social media cards (`GET /api/storefront/:identifier/seo`, `GET /api/storefront/:identifier/products/:productId/seo`).
+- **Schema.org JSON-LD Structured Data**: Search-engine rich snippets for Google Merchant (`Product`, `Offer`, `OnlineStore`).
+- **Search Engine Sitemaps**: Dynamic XML and JSON sitemaps indexer (`GET /api/storefront/:identifier/sitemap.xml`, `GET /api/storefront/:identifier/sitemap.json`).
+
+### Phase 12: Production Hardening, Security, Rate Limiting & End-to-End Validation
+- **Tiered Sliding-Window Rate Limiting**: Dedicated protection for auth/login endpoints (`15 req/15min`), sensitive API mutations (`100 req/min`), and public browsing (`300 req/min`) with `RateLimit-*` headers and `429 Too Many Requests` responses.
+- **Production Defense Headers**: `Content-Security-Policy`, `Strict-Transport-Security` (HSTS), `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy`, and removal of `X-Powered-By`.
+- **NoSQL Injection Defense**: Automated detection and blocking of prohibited query operators (`$gt`, `$where`, `$ne`, etc.) across bodies, query parameters, and route parameters.
+- **Reliability & Health Probes**: Container liveness probe (`GET /health/live`) and deep readiness probe (`GET /health/ready`) tracking database status and heap memory usage.
+
 ---
 
-## 🛠️ API Routes Overview
+## 🛠️ Complete API Routes Directory
 
-| Method | Endpoint | Description | Auth |
+| Method | Endpoint | Description | Access |
 |---|---|---|---|
 | `GET` | `/health` / `/api/health` | Service health status | Public |
-| `POST` | `/api/auth/register` | Register new seller account | Public |
-| `POST` | `/api/auth/login` | Authenticate seller or admin | Public |
+| `GET` | `/health/live` / `/api/health/live` | Container liveness probe | Public |
+| `GET` | `/health/ready` / `/api/health/ready` | Deep system readiness probe | Public |
+| `POST` | `/api/auth/register` | Register new seller account (rate limited) | Public |
+| `POST` | `/api/auth/login` | Authenticate seller or admin (rate limited) | Public |
 | `GET` | `/api/auth/me` | Fetch authenticated seller profile | Bearer Token |
 | `GET` | `/api/business` | Get seller's business configuration | Bearer Token |
-| `PATCH` | `/api/business` | Update business settings & policies | Bearer Token |
+| `PATCH` | `/api/business` | Update business settings, slug & policies | Bearer Token |
 | `GET` | `/api/sellers/:id` | Public storefront profile | Public |
 | `GET` | `/api/products` | Search/list seller products (or public) | Optional / Bearer |
 | `POST` | `/api/products` | Create product with variants | Bearer Token |
@@ -106,17 +122,25 @@ The system is built in 10 modular phases following domain-driven design, multi-t
 | `GET` | `/api/analytics/trends` | Time-series sales trends | Bearer Token |
 | `GET` | `/api/analytics/top-products`| Top-selling products rankings | Bearer Token |
 | `GET` | `/api/analytics/customers`| Customer lifetime spend & retention | Bearer Token |
-| `GET` | `/api/analytics/export/orders`| Export orders to CSV format | Bearer Token |
-| `GET` | `/api/analytics/export/revenue`| Export revenue ledger to CSV format | Bearer Token |
-| `GET` | `/api/payouts/balance` | Get available settlement balance | Bearer Token |
-| `POST` | `/api/payouts/resolve-account`| Resolve 10-digit NUBAN bank account | Bearer Token |
+| `GET` | `/api/analytics/export/orders` | Export seller orders as CSV | Bearer Token |
+| `GET` | `/api/analytics/export/revenue` | Export financial transactions as CSV | Bearer Token |
+| `GET` | `/api/payouts/balance` | Query current available balance | Bearer Token |
+| `POST` | `/api/payouts/resolve-account` | Verify Nigerian bank account (NUBAN) | Bearer Token |
 | `POST` | `/api/payouts/request` | Submit withdrawal request | Bearer Token |
 | `GET` | `/api/payouts` | List seller payout history | Bearer Token |
 | `POST` | `/api/campaigns` | Create marketing broadcast campaign | Bearer Token |
 | `GET` | `/api/campaigns` | List seller marketing campaigns | Bearer Token |
 | `GET` | `/api/campaigns/segments/:seg/preview`| Preview audience for segment | Bearer Token |
-| `POST` | `/api/campaigns/:id/send`| Dispatch broadcast campaign | Bearer Token |
+| `POST` | `/api/campaigns/:id/send` | Dispatch broadcast campaign | Bearer Token |
 | `POST` | `/api/campaigns/abandoned-orders/trigger`| Trigger abandoned order reminders | Bearer Token |
+| `GET` | `/api/storefront/:identifier` | Public storefront by slug or sellerId | Public |
+| `GET` | `/api/storefront/:identifier/categories` | Public store categories with counts | Public |
+| `GET` | `/api/storefront/:identifier/products` | Public catalog search, filter & sort | Public |
+| `GET` | `/api/storefront/:identifier/products/:id` | Product details & related items | Public |
+| `GET` | `/api/storefront/:identifier/seo` | Storefront OpenGraph & Schema.org tags | Public |
+| `GET` | `/api/storefront/:identifier/products/:id/seo` | Product OpenGraph & Product JSON-LD | Public |
+| `GET` | `/api/storefront/:identifier/sitemap.xml` | Dynamic XML Sitemap for crawlers | Public |
+| `GET` | `/api/storefront/:identifier/sitemap.json` | Dynamic JSON Sitemap for crawlers | Public |
 | `GET` | `/api/admin/stats` | Platform performance KPIs | Admin Only |
 | `GET` | `/api/admin/sellers` | Manage platform sellers | Admin Only |
 | `PATCH` | `/api/admin/sellers/:id/status`| Suspend or activate seller | Admin Only |
@@ -130,7 +154,7 @@ The system is built in 10 modular phases following domain-driven design, multi-t
 
 ## 🧪 Testing
 
-The repository contains end-to-end automated integration tests for all 10 phases.
+The repository contains automated integration test suites across all 12 phases.
 
 Run the complete test suite:
 ```bash
@@ -149,24 +173,6 @@ node tests/phase7.test.js
 node tests/phase8.test.js
 node tests/phase9.test.js
 node tests/phase10.test.js
+node tests/phase11.test.js
+node tests/phase12.test.js
 ```
-
----
-
-## 🚀 Environment Variables
-
-Copy `.env.example` to `.env`:
-```bash
-cp .env.example .env
-```
-
-Key environment configurations:
-- `PORT`: Server port (default: `5000`)
-- `NODE_ENV`: `development` or `production`
-- `JWT_SECRET`: Secret key for JWT auth tokens
-- `MONGODB_URI`: MongoDB connection URI (optional; automated in-memory store active when offline)
-- `OPENAI_API_KEY`: OpenAI API key for conversational agent
-- `PAYSTACK_SECRET_KEY`: Paystack secret key for checkout & webhook verification
-- `WHATSAPP_VERIFY_TOKEN`: WhatsApp webhook verification token
-- `WHATSAPP_TOKEN`: WhatsApp Cloud API Bearer access token
-- `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET`: Cloud media uploads
