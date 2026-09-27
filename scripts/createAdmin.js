@@ -6,22 +6,26 @@
  * Privileged accounts are now created explicitly and stored in MongoDB.
  *
  * Usage:
- *   npm run create-admin -- --email admin@yourdomain.com --password 'Str0ngPass!' --name "Platform Admin"
- *   npm run create-admin -- --email owner@yourdomain.com --password 'Str0ngPass!' --role platform_owner
+ *   npm run create-admin -- --email admin@yourdomain.com --password 'Str0ngPass1' --name "Platform Admin"
+ *   npm run create-admin -- --email owner@yourdomain.com --password 'Str0ngPass1' --role platform_owner
+ *   npm run create-admin -- --email existing@yourdomain.com --role admin --promote
  *
  * Flags:
  *   --email      (required) login email
- *   --password   (required) at least 8 chars, 1 uppercase, 1 number
+ *   --password   at least 8 chars, 1 uppercase, 1 number.
+ *                Required when creating; optional with --promote (supply it to
+ *                also reset the password of the existing account).
  *   --name       business/display name          (default: "Platform Administration")
  *   --phone      optional Nigerian phone number
  *   --role       seller | admin | platform_owner (default: admin)
- *   --promote    promote the account to --role if the email already exists
+ *   --promote    change the role of an account that already exists
  */
 
 require('dotenv').config();
 
 const { connectDB, disconnectDB } = require('../config/db');
 const authService = require('../services/auth/authService');
+const { isStrongPassword } = require('../utils/validators');
 const User = require('../models/User');
 
 function parseArgs(argv) {
@@ -52,9 +56,25 @@ async function main() {
   const businessName = typeof args.name === 'string' ? args.name : 'Platform Administration';
   const phone = typeof args.phone === 'string' ? args.phone : '';
 
-  if (!email || !password) {
-    console.error('Error: --email and --password are required.\n');
+  const promote = args.promote === true || args.promote === 'true';
+
+  if (!email) {
+    console.error('Error: --email is required.\n');
     console.error("Example: npm run create-admin -- --email admin@yourdomain.com --password 'Str0ngPass1'");
+    process.exitCode = 1;
+    return;
+  }
+
+  if (!password && !promote) {
+    console.error('Error: --password is required when creating an account.\n');
+    console.error("Example: npm run create-admin -- --email admin@yourdomain.com --password 'Str0ngPass1'");
+    console.error('(Use --promote to change the role of an account that already exists.)');
+    process.exitCode = 1;
+    return;
+  }
+
+  if (password && !isStrongPassword(password)) {
+    console.error('Error: password must be at least 8 characters and contain 1 uppercase letter and 1 number.');
     process.exitCode = 1;
     return;
   }
@@ -71,7 +91,7 @@ async function main() {
   const existing = await User.findOne({ email: normalizedEmail });
 
   if (existing) {
-    if (!args.promote) {
+    if (!promote) {
       console.error(
         `Error: a user with email "${normalizedEmail}" already exists (role: ${existing.role}).\n` +
           'Re-run with --promote to change its role.'
@@ -81,9 +101,15 @@ async function main() {
       return;
     }
 
+    const previousRole = existing.role;
     existing.role = role;
+    if (password) existing.password = password; // re-hashed by the User pre('save') hook
+    existing.isActive = true;
     await existing.save();
-    console.log(`Promoted existing account ${normalizedEmail} to role "${role}".`);
+
+    console.log(`Updated existing account ${normalizedEmail}:`);
+    console.log(`  role:     ${previousRole} -> ${existing.role}`);
+    console.log(`  password: ${password ? 'reset' : 'unchanged'}`);
     await disconnectDB();
     return;
   }

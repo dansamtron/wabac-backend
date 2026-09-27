@@ -184,12 +184,31 @@ always creates a `seller` — a `role` supplied in the request body is ignored. 
 accounts are provisioned explicitly from the CLI:
 
 ```bash
+# create a platform admin
 npm run create-admin -- --email admin@yourdomain.com --password 'Str0ngPass1' --name "Platform Admin"
+
+# create a platform owner
 npm run create-admin -- --email owner@yourdomain.com --password 'Str0ngPass1' --role platform_owner
-npm run create-admin -- --email existing@yourdomain.com --password unused --role admin --promote
+
+# promote an account that already exists (password left untouched)
+npm run create-admin -- --email existing@yourdomain.com --role admin --promote
+
+# promote and reset the password in one go
+npm run create-admin -- --email existing@yourdomain.com --password 'NewStr0ngPass1' --role admin --promote
 ```
 
-Valid roles: `seller`, `admin`, `platform_owner`.
+| Flag | Required | Description |
+| :--- | :--- | :--- |
+| `--email` | yes | Login email |
+| `--password` | when creating | Min 8 characters, 1 uppercase, 1 number |
+| `--role` | no | `seller`, `admin` or `platform_owner` (default `admin`) |
+| `--name` | no | Business/display name (default `Platform Administration`) |
+| `--phone` | no | Nigerian phone number |
+| `--promote` | no | Update an account that already exists instead of failing |
+
+The command reads `MONGO_URI` from `.env`, creates the `User` plus its default `Business`
+profile, prints the new id/email/role and exits. Admin-only endpoints live under
+`/api/admin/*` and `/api/platform/*` (`authorizeRoles('admin', 'platform_owner')`).
 
 ### Schema index audit
 
