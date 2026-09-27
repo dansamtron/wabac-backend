@@ -14,7 +14,14 @@ const { optionalAuth } = require('../middleware/authMiddleware');
  */
 router.post('/chat', optionalAuth, async (req, res, next) => {
   try {
-    const sellerId = req.sellerId || req.body.sellerId || 'seller_admin';
+    const sellerId = req.sellerId || req.body.sellerId;
+    if (!sellerId) {
+      return res.status(400).json({
+        success: false,
+        message: 'sellerId is required (authenticate as a seller or pass sellerId in the body)',
+      });
+    }
+
     const customerPhone = req.body.customerPhone || 'anon_customer';
     const { body, history } = req.body;
 

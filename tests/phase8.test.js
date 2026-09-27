@@ -5,10 +5,13 @@
 
 const http = require('http');
 const app = require('../server');
+const { setupTestDb, teardownTestDb, createAdminAccount } = require('./helpers/testDb');
 const authService = require('../services/auth/authService');
 
 async function runTests() {
   console.log('=== Running Phase 8 Verification Tests ===');
+
+  await setupTestDb();
 
   const server = http.createServer(app);
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -16,12 +19,14 @@ async function runTests() {
   const baseUrl = `http://127.0.0.1:${port}`;
 
   try {
-    // 1. Admin Authentication
+    // 1. Admin Authentication (account provisioned explicitly - no seeded defaults)
     console.log('Testing Admin Authentication...');
+    const admin = await createAdminAccount();
+
     const adminLoginRes = await fetch(`${baseUrl}/api/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: 'admin@cognicart.ng', password: 'Admin123!' }),
+      body: JSON.stringify({ email: admin.email, password: admin.password }),
     });
     const adminData = await adminLoginRes.json();
     if (adminLoginRes.status !== 200 || !adminData.token) {
@@ -154,6 +159,7 @@ async function runTests() {
     console.log('=== All Phase 8 Tests Passed Successfully! ===');
   } finally {
     server.close();
+    await teardownTestDb();
   }
 }
 

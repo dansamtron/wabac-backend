@@ -5,11 +5,14 @@
 
 const http = require('http');
 const app = require('../server');
+const { setupTestDb, teardownTestDb } = require('./helpers/testDb');
 const { isEmail, isStrongPassword, isNigerianPhone, normalizePhone, sanitize, clampRequestSize } = require('../utils/validators');
 const { generateToken, verifyToken } = require('../utils/generateToken');
 
 async function runTests() {
   console.log('=== Running Phase 1 Verification Tests ===');
+
+  await setupTestDb();
 
   // 1. Validator Tests
   console.log('Testing validators...');
@@ -83,6 +86,7 @@ async function runTests() {
     console.log('  [PASS] Centralized 404 handler');
   } finally {
     server.close();
+    await teardownTestDb();
   }
 
   console.log('=== All Phase 1 Tests Passed Successfully! ===');

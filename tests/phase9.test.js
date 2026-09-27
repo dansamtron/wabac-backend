@@ -5,10 +5,13 @@
 
 const http = require('http');
 const app = require('../server');
+const { setupTestDb, teardownTestDb, createAdminAccount } = require('./helpers/testDb');
 const { generateToken } = require('../utils/generateToken');
 
 async function runTests() {
   console.log('=== Running Phase 9 Verification Tests ===');
+
+  await setupTestDb();
 
   const server = http.createServer(app);
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -33,11 +36,12 @@ async function runTests() {
     const sellerId = regData.seller.id;
     const sellerToken = regData.token;
 
-    // Login as Admin
+    // Provision and log in as Admin
+    const admin = await createAdminAccount();
     const adminRes = await fetch(`${baseUrl}/api/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: 'admin@cognicart.ng', password: 'Admin123!' }),
+      body: JSON.stringify({ email: admin.email, password: admin.password }),
     });
     const adminData = await adminRes.json();
     const adminToken = adminData.token;
@@ -332,6 +336,7 @@ async function runTests() {
 
   } finally {
     server.close();
+    await teardownTestDb();
   }
 
   console.log('=== All Phase 9 Tests Passed Successfully! ===');

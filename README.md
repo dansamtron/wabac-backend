@@ -152,9 +152,67 @@ The complete system architecture is implemented across 12 modular phases followi
 
 ---
 
+## 🗄️ Database Requirement & Setup
+
+MongoDB is **mandatory**. The backend persists every entity (users, businesses, products,
+orders, customers, messages, payments, payouts, campaigns, platform config) in MongoDB and
+has **no in-memory fallback store** — if the database is unreachable the server refuses to
+boot, and if the connection drops at runtime every `/api/*` and `/webhooks/*` request answers
+`503 Service Unavailable` instead of silently serving throwaway data.
+
+1. Copy the environment template and point `MONGO_URI` at your instance:
+   ```bash
+   cp .env.example .env
+   ```
+2. Start the API:
+   ```bash
+   npm run dev      # or: npm start
+   ```
+
+Health probes stay reachable even while the database is down, so orchestrators can observe it:
+
+| Endpoint | Database up | Database down |
+| :--- | :--- | :--- |
+| `GET /health` | `200 healthy` | `503 degraded` |
+| `GET /health/live` | `200 alive` | `200 alive` |
+| `GET /health/ready` | `200 ready` | `503 not-ready` |
+
+### Creating admin / platform owner accounts
+
+There are **no seeded default accounts**. Self-service registration (`POST /api/auth/register`)
+always creates a `seller` — a `role` supplied in the request body is ignored. Privileged
+accounts are provisioned explicitly from the CLI:
+
+```bash
+npm run create-admin -- --email admin@yourdomain.com --password 'Str0ngPass1' --name "Platform Admin"
+npm run create-admin -- --email owner@yourdomain.com --password 'Str0ngPass1' --role platform_owner
+npm run create-admin -- --email existing@yourdomain.com --password unused --role admin --promote
+```
+
+Valid roles: `seller`, `admin`, `platform_owner`.
+
+### Schema index audit
+
+```bash
+npm run check-indexes
+```
+
+Loads every model and fails if two definitions declare the same key pattern — the cause of
+Mongoose's `Duplicate schema index on {...}` startup warning. No database connection needed.
+
+---
+
 ## 🧪 Testing
 
 The repository contains automated integration test suites across all 12 phases.
+
+The suites exercise the real persistence layer, so a **running MongoDB is required**. Point
+`MONGO_URI_TEST` at a throwaway database (default `mongodb://127.0.0.1:27017/wabac_test`) —
+every suite wipes it before it runs and provisions its own admin account:
+
+```bash
+export MONGO_URI_TEST=mongodb://127.0.0.1:27017/wabac_test
+```
 
 Run the complete test suite:
 ```bash

@@ -1,6 +1,9 @@
 /**
  * WhatsApp Business Cloud API Integration Service
  * Manages seller WhatsApp onboarding, outbound messaging, webhook processing, and message threads
+ *
+ * Connection credentials are persisted on the seller's Business document -
+ * there is no in-memory credential cache.
  */
 
 const businessService = require('../sellers/businessService');
@@ -9,11 +12,8 @@ const webhookService = require('./webhookService');
 const messageService = require('./messageService');
 const aiService = require('../ai/aiService');
 const Business = require('../../models/Business');
-const { isDbConnected } = require('../../config/db');
 const { sanitize, normalizePhone } = require('../../utils/validators');
 const logger = require('../../utils/logger');
-
-const memoryConfigs = new Map();
 
 const whatsappService = {
   /**
@@ -22,26 +22,29 @@ const whatsappService = {
   async getConfig(sellerId) {
     if (!sellerId) throw new Error('Seller ID is required');
 
-    const business = await businessService.getBySellerId(sellerId);
-    const memCfg = memoryConfigs.get(sellerId) || {};
+    const business = await businessService.requireBySellerId(sellerId);
+    const secrets = await businessService.getWithSecrets(sellerId);
+    const accessToken = (secrets && secrets.whatsappAccessToken) || process.env.WHATSAPP_ACCESS_TOKEN || '';
 
     return {
       sellerId,
-      businessPhone: (business && business.whatsappPhone) || memCfg.businessPhone || '',
-      phoneNumberId: memCfg.phoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID || 'pnid_' + sellerId.slice(-6),
-      verifyToken: memCfg.verifyToken || process.env.WHATSAPP_VERIFY_TOKEN || 'verify_' + sellerId.slice(-6),
-      accessToken: memCfg.accessToken ? '***configured***' : (process.env.WHATSAPP_ACCESS_TOKEN ? '***configured***' : ''),
+      businessPhone: business.whatsappPhone || '',
+      phoneNumberId: business.whatsappPhoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID || '',
+      verifyToken: business.whatsappVerifyToken || process.env.WHATSAPP_VERIFY_TOKEN || '',
+      accessToken: accessToken ? '***configured***' : '',
       webhookUrl: `${process.env.CLIENT_URL || 'http://localhost:5000'}/api/whatsapp/webhook`,
-      webhookVerified: !!memCfg.webhookVerified,
-      connectedAt: (business && business.whatsappVerifiedAt) || memCfg.connectedAt || null,
-      whatsappConnected: !!(business && business.whatsappConnected),
+      webhookVerified: !!business.whatsappWebhookVerified,
+      connectedAt: business.whatsappVerifiedAt || null,
+      whatsappConnected: !!business.whatsappConnected,
     };
   },
 
   /**
    * Connect seller WhatsApp Business Account
    */
-  async connect(sellerId, payload) {
+  async connect(sellerId, payload = {}) {
+    if (!sellerId) throw new Error('Seller ID is required');
+
     const rawPhone = payload.businessPhone || payload.phone;
     if (!rawPhone) {
       const err = new Error('Business phone number is required');
@@ -49,27 +52,21 @@ const whatsappService = {
       throw err;
     }
 
-    const cleanPhone = normalizePhone(rawPhone) || rawPhone.trim();
-    const now = new Date().toISOString();
+    const cleanPhone = normalizePhone(rawPhone) || String(rawPhone).trim();
+    const now = new Date();
 
-    const config = {
-      sellerId,
-      businessPhone: cleanPhone,
-      phoneNumberId: payload.phoneNumberId || 'pnid_' + sellerId.slice(-6),
-      verifyToken: payload.verifyToken || 'verify_' + sellerId.slice(-6),
-      accessToken: payload.accessToken || '',
-      connectedAt: now,
-      webhookVerified: true,
-      updatedAt: now,
-    };
-    memoryConfigs.set(sellerId, config);
-
-    // Update business profile
-    await businessService.update(sellerId, {
+    const updates = {
       whatsappPhone: cleanPhone,
       whatsappConnected: true,
       whatsappVerifiedAt: now,
-    });
+      whatsappWebhookVerified: true,
+    };
+
+    if (payload.phoneNumberId !== undefined) updates.whatsappPhoneNumberId = String(payload.phoneNumberId).trim();
+    if (payload.verifyToken !== undefined) updates.whatsappVerifyToken = String(payload.verifyToken).trim();
+    if (payload.accessToken !== undefined) updates.whatsappAccessToken = String(payload.accessToken).trim();
+
+    await businessService.update(sellerId, updates);
 
     logger.info('WhatsApp connected for seller:', { sellerId, businessPhone: cleanPhone });
     return this.getConfig(sellerId);
@@ -79,11 +76,17 @@ const whatsappService = {
    * Disconnect seller WhatsApp Business Account
    */
   async disconnect(sellerId) {
-    memoryConfigs.delete(sellerId);
+    if (!sellerId) throw new Error('Seller ID is required');
+
     await businessService.update(sellerId, {
       whatsappConnected: false,
       whatsappVerifiedAt: null,
+      whatsappWebhookVerified: false,
+      whatsappPhoneNumberId: '',
+      whatsappVerifyToken: '',
+      whatsappAccessToken: '',
     });
+
     logger.info('WhatsApp disconnected for seller:', { sellerId });
     return { success: true, message: 'WhatsApp disconnected' };
   },
@@ -92,6 +95,12 @@ const whatsappService = {
    * Send outbound message via WhatsApp Cloud API
    */
   async sendOutbound({ sellerId, to, body, businessPhone = '' }) {
+    if (!sellerId) {
+      const err = new Error('Seller ID is required');
+      err.statusCode = 400;
+      throw err;
+    }
+
     if (!to || !body) {
       const err = new Error('Recipient number ("to") and message "body" are required');
       err.statusCode = 400;
@@ -101,14 +110,17 @@ const whatsappService = {
     const cleanTo = normalizePhone(to) || to.trim();
     const cleanBody = sanitize(body, 4000);
 
-    const memCfg = memoryConfigs.get(sellerId) || {};
-    const phoneNumberId = memCfg.phoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID;
-    const accessToken = memCfg.accessToken || process.env.WHATSAPP_ACCESS_TOKEN;
+    const business = await businessService.getWithSecrets(sellerId);
+    const phoneNumberId = (business && business.whatsappPhoneNumberId) || process.env.WHATSAPP_PHONE_NUMBER_ID;
+    const accessToken = (business && business.whatsappAccessToken) || process.env.WHATSAPP_ACCESS_TOKEN;
 
     // If live credentials exist, send via Meta Graph API
     if (phoneNumberId && accessToken) {
       try {
-        const url = `https://graph.facebook.com/v21.0/${phoneNumberId}/messages`;
+        const apiUrl = process.env.WHATSAPP_API_URL || 'https://graph.facebook.com';
+        const apiVersion = process.env.WHATSAPP_API_VERSION || 'v21.0';
+        const url = `${apiUrl}/${apiVersion}/${phoneNumberId}/messages`;
+
         const res = await fetch(url, {
           method: 'POST',
           headers: {
@@ -125,7 +137,7 @@ const whatsappService = {
         });
 
         if (!res.ok) {
-          const errData = await res.json();
+          const errData = await res.json().catch(() => ({}));
           logger.warn('Meta WhatsApp API call failed:', errData);
         }
       } catch (err) {
@@ -134,17 +146,15 @@ const whatsappService = {
     }
 
     // Record outbound message in transcript
-    const msg = await messageService.saveMessage({
+    return messageService.saveMessage({
       sellerId,
-      businessPhone: businessPhone || memCfg.businessPhone || '',
+      businessPhone: businessPhone || (business && business.whatsappPhone) || '',
       customerPhone: cleanTo,
       direction: 'outbound',
       body: cleanBody,
       deterministic: false,
       status: 'sent',
     });
-
-    return msg;
   },
 
   /**
@@ -162,26 +172,21 @@ const whatsappService = {
     const body = sanitize(parsed.body, 4000);
     const businessPhone = parsed.businessPhone ? normalizePhone(parsed.businessPhone) : '';
 
-    // Identify target seller by business phone
+    // Identify the target seller by business phone
     let sellerId = payload.sellerId;
 
     if (!sellerId && businessPhone) {
-      if (isDbConnected()) {
-        const biz = await Business.findOne({ whatsappPhone: businessPhone });
-        if (biz) sellerId = biz.sellerId;
-      } else {
-        for (const [sId, cfg] of memoryConfigs.entries()) {
-          if (cfg.businessPhone === businessPhone) {
-            sellerId = sId;
-            break;
-          }
-        }
-      }
+      const biz = await Business.findOne({ whatsappPhone: businessPhone });
+      if (biz) sellerId = biz.sellerId;
     }
 
-    // Default fallback to first active seller if unassigned (sandbox / single tenant mode)
+    // No silent fallback seller: an unroutable message is an error, not someone else's conversation
     if (!sellerId) {
-      sellerId = 'seller_admin';
+      const err = new Error(
+        `Unable to route inbound WhatsApp message: no seller is connected to business phone "${businessPhone || 'unknown'}"`
+      );
+      err.statusCode = 404;
+      throw err;
     }
 
     // 1. Record inbound message
@@ -222,6 +227,7 @@ const whatsappService = {
         replyText = aiRes.reply;
         toolCalls = aiRes.toolCalls;
       } catch (err) {
+        logger.warn('AI agent failed, using deterministic reply engine:', { error: err.message });
         replyText = await webhookService.deterministicReply(sellerId, body);
         isDeterministic = true;
       }

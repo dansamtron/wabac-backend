@@ -3,16 +3,12 @@
  * Powers audience segmentation, template variable interpolation, bulk broadcast dispatch, and abandoned order recovery
  */
 
+const mongoose = require('mongoose');
 const Campaign = require('../../models/Campaign');
-const Order = require('../../models/Order');
-const { isDbConnected } = require('../../config/db');
 const customerService = require('../customers/customerService');
 const orderService = require('../orders/orderService');
 const businessService = require('../sellers/businessService');
 const logger = require('../../utils/logger');
-
-// In-Memory store for campaigns when MongoDB is offline
-const memoryCampaigns = new Map();
 
 function getWhatsAppService() {
   return require('../whatsapp/whatsappService');
@@ -110,24 +106,9 @@ const campaignService = {
       metadata: payload.metadata || {},
     };
 
-    if (isDbConnected()) {
-      const campaign = await Campaign.create(campaignData);
-      logger.info('Campaign created (DB):', { id: campaign._id.toString(), sellerId, segment });
-      return campaign.toJSON();
-    }
-
-    const id = 'cmp_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-    const now = new Date().toISOString();
-    const memCampaign = {
-      id,
-      _id: id,
-      ...campaignData,
-      createdAt: now,
-      updatedAt: now,
-    };
-    memoryCampaigns.set(id, memCampaign);
-    logger.info('Campaign created (Memory):', { id, sellerId, segment });
-    return memCampaign;
+    const campaign = await Campaign.create(campaignData);
+    logger.info('Campaign created:', { id: campaign._id.toString(), sellerId, segment });
+    return campaign.toJSON();
   },
 
   /**
@@ -136,36 +117,27 @@ const campaignService = {
   async list(sellerId) {
     if (!sellerId) throw new Error('Seller ID is required');
 
-    if (isDbConnected()) {
-      const campaigns = await Campaign.find({ sellerId }).sort({ createdAt: -1 });
-      return campaigns.map((c) => c.toJSON());
-    }
-
-    const list = Array.from(memoryCampaigns.values()).filter((c) => c.sellerId === sellerId);
-    return list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    const campaigns = await Campaign.find({ sellerId }).sort({ createdAt: -1 });
+    return campaigns.map((c) => c.toJSON());
   },
 
   /**
    * Get single campaign by ID
    */
   async getById(id, sellerId) {
-    if (isDbConnected()) {
-      const campaign = await Campaign.findOne({ _id: id, sellerId });
-      if (!campaign) {
-        const err = new Error('Campaign not found');
-        err.statusCode = 404;
-        throw err;
-      }
-      return campaign.toJSON();
-    }
-
-    const campaign = memoryCampaigns.get(id);
-    if (!campaign || campaign.sellerId !== sellerId) {
+    if (!id || !mongoose.isValidObjectId(id)) {
       const err = new Error('Campaign not found');
       err.statusCode = 404;
       throw err;
     }
-    return campaign;
+
+    const campaign = await Campaign.findOne({ _id: id, sellerId });
+    if (!campaign) {
+      const err = new Error('Campaign not found');
+      err.statusCode = 404;
+      throw err;
+    }
+    return campaign.toJSON();
   },
 
   /**
@@ -219,32 +191,21 @@ const campaignService = {
       failedCount,
     };
 
-    if (isDbConnected()) {
-      const updated = await Campaign.findByIdAndUpdate(
-        campaignId,
-        {
-          $set: {
-            status: finalStatus,
-            sentAt: now,
-            stats,
-            recipients: updatedRecipients,
-          },
+    const updated = await Campaign.findByIdAndUpdate(
+      campaignId,
+      {
+        $set: {
+          status: finalStatus,
+          sentAt: now,
+          stats,
+          recipients: updatedRecipients,
         },
-        { new: true }
-      );
-      logger.info('Campaign sent (DB):', { campaignId, sentCount, failedCount });
-      return updated.toJSON();
-    }
+      },
+      { new: true }
+    );
 
-    campaign.status = finalStatus;
-    campaign.sentAt = now.toISOString();
-    campaign.stats = stats;
-    campaign.recipients = updatedRecipients;
-    campaign.updatedAt = now.toISOString();
-
-    memoryCampaigns.set(campaignId, campaign);
-    logger.info('Campaign sent (Memory):', { campaignId, sentCount, failedCount });
-    return campaign;
+    logger.info('Campaign sent:', { campaignId, sentCount, failedCount });
+    return updated.toJSON();
   },
 
   /**
@@ -310,10 +271,6 @@ const campaignService = {
       remindersSentCount: remindersSent.length,
       reminders: remindersSent,
     };
-  },
-
-  getMemoryStore() {
-    return memoryCampaigns;
   },
 };
 

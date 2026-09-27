@@ -5,9 +5,12 @@
 
 const http = require('http');
 const app = require('../server');
+const { setupTestDb, teardownTestDb, createAdminAccount } = require('./helpers/testDb');
 
 async function runTests() {
   console.log('=== Running Phase 2 Verification Tests ===');
+
+  await setupTestDb();
 
   const server = http.createServer(app);
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -123,18 +126,37 @@ async function runTests() {
     }
     console.log('  [PASS] PATCH /api/business updated settings successfully');
 
-    // 9. Pre-seeded Admin Login & RBAC Verification
-    console.log('Testing Pre-seeded Admin & Role verification...');
+    // 9. Provisioned Admin Login & RBAC Verification
+    console.log('Testing provisioned Admin & Role verification...');
+    const admin = await createAdminAccount();
+
     const resAdminLogin = await fetch(`${baseUrl}/api/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: 'admin@cognicart.ng', password: 'Admin123!' }),
+      body: JSON.stringify({ email: admin.email, password: admin.password }),
     });
     const dataAdmin = await resAdminLogin.json();
     if (resAdminLogin.status !== 200 || dataAdmin.seller.role !== 'admin') {
       throw new Error(`Admin login failed: ${JSON.stringify(dataAdmin)}`);
     }
     console.log('  [PASS] Admin authenticated with role "admin"');
+
+    // Self-service registration must never grant a privileged role
+    const resRoleEscalation = await fetch(`${baseUrl}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        businessName: 'Escalation Attempt',
+        email: `escalation_${Date.now()}@test.ng`,
+        password: 'Password123!',
+        role: 'admin',
+      }),
+    });
+    const dataEscalation = await resRoleEscalation.json();
+    if (resRoleEscalation.status !== 201 || dataEscalation.seller.role !== 'seller') {
+      throw new Error(`Role escalation via register payload was not blocked: ${JSON.stringify(dataEscalation)}`);
+    }
+    console.log('  [PASS] Registration payload cannot self-assign a privileged role');
 
     // 10. Public Storefront: GET /api/sellers/:id
     console.log('Testing Public Storefront Endpoint...');
@@ -148,6 +170,7 @@ async function runTests() {
     console.log('=== All Phase 2 Tests Passed Successfully! ===');
   } finally {
     server.close();
+    await teardownTestDb();
   }
 }
 

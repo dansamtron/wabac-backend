@@ -6,6 +6,8 @@
 const express = require('express');
 const router = express.Router();
 
+const { requireDatabase } = require('../middleware/databaseMiddleware');
+
 const rootRoutes = require('./rootRoutes');
 const healthRoutes = require('./healthRoutes');
 const authRoutes = require('./authRoutes');
@@ -27,6 +29,10 @@ const storefrontRoutes = require('./storefrontRoutes');
 router.use('/', rootRoutes);
 router.use('/health', healthRoutes);
 router.use('/api/health', healthRoutes);
+
+// Every feature API below is database backed: reject requests with HTTP 503
+// when MongoDB is unreachable (health & root routes stay available).
+router.use(['/api', '/webhooks'], requireDatabase);
 
 // Feature APIs
 router.use('/api/auth', authRoutes);

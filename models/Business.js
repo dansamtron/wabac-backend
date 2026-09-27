@@ -9,8 +9,7 @@ const businessSchema = new mongoose.Schema(
     sellerId: {
       type: String,
       required: true,
-      unique: true,
-      index: true,
+      unique: true, // `unique` already builds the index
     },
     name: {
       type: String,
@@ -101,6 +100,27 @@ const businessSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    // WhatsApp Cloud API credentials (persisted per seller; previously held in memory)
+    whatsappPhoneNumberId: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    whatsappVerifyToken: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    whatsappAccessToken: {
+      type: String,
+      default: '',
+      trim: true,
+      select: false, // never returned by default: secret credential
+    },
+    whatsappWebhookVerified: {
+      type: Boolean,
+      default: false,
+    },
   },
   {
     timestamps: true,
@@ -110,6 +130,8 @@ const businessSchema = new mongoose.Schema(
         ret.id = ret._id ? ret._id.toString() : ret.id;
         delete ret._id;
         delete ret.__v;
+        // Never expose the WhatsApp system-user token through an API response
+        delete ret.whatsappAccessToken;
         return ret;
       },
     },

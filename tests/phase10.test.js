@@ -5,9 +5,12 @@
 
 const http = require('http');
 const app = require('../server');
+const { setupTestDb, teardownTestDb } = require('./helpers/testDb');
 
 async function runTests() {
   console.log('=== Running Phase 10 Verification Tests ===');
+
+  await setupTestDb();
 
   const server = http.createServer(app);
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -306,6 +309,7 @@ async function runTests() {
 
   } finally {
     server.close();
+    await teardownTestDb();
   }
 
   console.log('=== All Phase 10 Tests Passed Successfully! ===');

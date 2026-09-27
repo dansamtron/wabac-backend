@@ -3,14 +3,13 @@
  * Multi-tenant order lifecycle, frozen price snapshots, stock reservation, and idempotency
  */
 
+const mongoose = require('mongoose');
 const Order = require('../../models/Order');
-const Product = require('../../models/Product');
 const { getEffectivePrice } = require('../../models/Product');
-const { isDbConnected } = require('../../config/db');
 const customerService = require('../customers/customerService');
 const productService = require('../products/productService');
 const businessService = require('../sellers/businessService');
-const { sanitize, normalizePhone } = require('../../utils/validators');
+const { sanitize, escapeRegex, normalizePhone } = require('../../utils/validators');
 const logger = require('../../utils/logger');
 
 function getNotificationService() {
@@ -21,9 +20,11 @@ function getNotificationService() {
   }
 }
 
-// In-Memory store for development/testing when MongoDB daemon is not running
-const memoryOrders = new Map();
-const memoryIdempotency = new Map();
+function notFound(message = 'Order not found') {
+  const err = new Error(message);
+  err.statusCode = 404;
+  return err;
+}
 
 const orderService = {
   /**
@@ -38,18 +39,10 @@ const orderService = {
 
     // Idempotency guard: return cached order if key was already processed
     if (idempotencyKey) {
-      if (isDbConnected()) {
-        const existingOrder = await Order.findOne({ sellerId, idempotencyKey });
-        if (existingOrder) {
-          logger.info('Idempotent order hit (DB):', { idempotencyKey, orderId: existingOrder._id.toString() });
-          return existingOrder.toJSON();
-        }
-      } else {
-        const cachedId = memoryIdempotency.get(idempotencyKey);
-        if (cachedId && memoryOrders.has(cachedId)) {
-          logger.info('Idempotent order hit (Memory):', { idempotencyKey, orderId: cachedId });
-          return memoryOrders.get(cachedId);
-        }
+      const existingOrder = await Order.findOne({ sellerId, idempotencyKey });
+      if (existingOrder) {
+        logger.info('Idempotent order hit:', { idempotencyKey, orderId: existingOrder._id.toString() });
+        return existingOrder.toJSON();
       }
     }
 
@@ -96,7 +89,7 @@ const orderService = {
         throw err;
       }
 
-      // Fetch authoritative product from DB or memory
+      // Fetch authoritative product from the database
       const product = await productService.getById(item.productId, sellerId);
       if (!product) {
         const err = new Error(`Product not found or does not belong to this seller: ${item.productId}`);
@@ -123,10 +116,10 @@ const orderService = {
       subtotal += itemSubtotal;
 
       // Deduct stock from product
-      await productService.adjustStock(product.id || product._id, sellerId, qty, item.variantId);
+      await productService.adjustStock(product.id, sellerId, qty, item.variantId);
 
       validatedItems.push({
-        productId: (product.id || product._id).toString(),
+        productId: product.id.toString(),
         variantId: item.variantId || undefined,
         variantLabel: variantLabel || undefined,
         name: product.name,
@@ -152,7 +145,7 @@ const orderService = {
 
     const total = subtotal + deliveryFee;
 
-    const orderData = {
+    const order = await Order.create({
       sellerId,
       customerId: customer.id,
       customerName,
@@ -167,39 +160,15 @@ const orderService = {
       orderStatus: 'Pending',
       paymentReference: payload.paymentReference || '',
       idempotencyKey: idempotencyKey || undefined,
-    };
-
-    if (isDbConnected()) {
-      const order = await Order.create(orderData);
-      await customerService.incrementOnOrder(customer.id, sellerId, total);
-      logger.info('Order created successfully (DB):', { id: order._id.toString(), sellerId, total });
-      const orderJson = order.toJSON();
-      const ns = getNotificationService();
-      if (ns) ns.sendOrderConfirmation(orderJson).catch(() => {});
-      return orderJson;
-    }
-
-    // In-memory fallback
-    const id = 'ord_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-    const now = new Date().toISOString();
-    const memOrder = {
-      id,
-      _id: id,
-      ...orderData,
-      createdAt: now,
-      updatedAt: now,
-    };
-    memoryOrders.set(id, memOrder);
-
-    if (idempotencyKey) {
-      memoryIdempotency.set(idempotencyKey, id);
-    }
+    });
 
     await customerService.incrementOnOrder(customer.id, sellerId, total);
-    logger.info('Order created successfully (Memory):', { id, sellerId, total });
+    logger.info('Order created successfully:', { id: order._id.toString(), sellerId, total });
+
+    const orderJson = order.toJSON();
     const ns = getNotificationService();
-    if (ns) ns.sendOrderConfirmation(memOrder).catch(() => {});
-    return memOrder;
+    if (ns) ns.sendOrderConfirmation(orderJson).catch(() => {});
+    return orderJson;
   },
 
   /**
@@ -208,62 +177,35 @@ const orderService = {
   async list(sellerId, { status, paymentStatus, search } = {}) {
     if (!sellerId) throw new Error('Seller ID is required');
 
-    if (isDbConnected()) {
-      const filter = { sellerId };
-      if (status) filter.orderStatus = status;
-      if (paymentStatus) filter.paymentStatus = paymentStatus;
-      if (search) {
-        const q = sanitize(search, 100);
-        filter.$or = [
-          { customerName: { $regex: q, $options: 'i' } },
-          { customerPhone: { $regex: q, $options: 'i' } },
-          { 'items.name': { $regex: q, $options: 'i' } },
-        ];
-      }
-      const orders = await Order.find(filter).sort({ createdAt: -1 });
-      return orders.map((o) => o.toJSON());
+    const filter = { sellerId };
+    if (status) filter.orderStatus = status;
+    if (paymentStatus) filter.paymentStatus = paymentStatus;
+    if (search) {
+      const q = escapeRegex(sanitize(search, 100));
+      filter.$or = [
+        { customerName: { $regex: q, $options: 'i' } },
+        { customerPhone: { $regex: q, $options: 'i' } },
+        { 'items.name': { $regex: q, $options: 'i' } },
+      ];
     }
 
-    // In-memory fallback
-    let list = Array.from(memoryOrders.values()).filter((o) => o.sellerId === sellerId);
-    if (status) list = list.filter((o) => o.orderStatus === status);
-    if (paymentStatus) list = list.filter((o) => o.paymentStatus === paymentStatus);
-    if (search) {
-      const q = sanitize(search, 100).toLowerCase();
-      list = list.filter(
-        (o) =>
-          o.id.toLowerCase().includes(q) ||
-          o.customerName.toLowerCase().includes(q) ||
-          o.customerPhone.includes(q) ||
-          (o.items || []).some((item) => item.name.toLowerCase().includes(q))
-      );
-    }
-    return list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    const orders = await Order.find(filter).sort({ createdAt: -1 });
+    return orders.map((o) => o.toJSON());
   },
 
   /**
    * Get single order by ID (tenant isolation enforced)
    */
   async getById(id, sellerId) {
-    if (isDbConnected()) {
-      const query = { _id: id };
-      if (sellerId) query.sellerId = sellerId;
-      const order = await Order.findOne(query);
-      if (!order) {
-        const err = new Error('Order not found');
-        err.statusCode = 404;
-        throw err;
-      }
-      return order.toJSON();
-    }
+    if (!id || !mongoose.isValidObjectId(id)) throw notFound();
 
-    const order = memoryOrders.get(id);
-    if (!order || (sellerId && order.sellerId !== sellerId)) {
-      const err = new Error('Order not found');
-      err.statusCode = 404;
-      throw err;
-    }
-    return order;
+    const query = { _id: id };
+    if (sellerId) query.sellerId = sellerId;
+
+    const order = await Order.findOne(query);
+    if (!order) throw notFound();
+
+    return order.toJSON();
   },
 
   /**
@@ -277,37 +219,20 @@ const orderService = {
       throw err;
     }
 
-    if (isDbConnected()) {
-      const order = await Order.findOneAndUpdate(
-        { _id: id, sellerId },
-        { $set: { orderStatus } },
-        { new: true }
-      );
-      if (!order) {
-        const err = new Error('Order not found');
-        err.statusCode = 404;
-        throw err;
-      }
-      logger.info('Order status updated (DB):', { id, orderStatus });
-      const orderJson = order.toJSON();
-      const ns = getNotificationService();
-      if (ns) ns.sendOrderStatusUpdate(orderJson, orderStatus).catch(() => {});
-      return orderJson;
-    }
+    if (!id || !mongoose.isValidObjectId(id)) throw notFound();
 
-    const order = memoryOrders.get(id);
-    if (!order || order.sellerId !== sellerId) {
-      const err = new Error('Order not found');
-      err.statusCode = 404;
-      throw err;
-    }
-    order.orderStatus = orderStatus;
-    order.updatedAt = new Date().toISOString();
-    memoryOrders.set(id, order);
-    logger.info('Order status updated (Memory):', { id, orderStatus });
+    const order = await Order.findOneAndUpdate(
+      { _id: id, sellerId },
+      { $set: { orderStatus } },
+      { new: true }
+    );
+    if (!order) throw notFound();
+
+    logger.info('Order status updated:', { id, orderStatus });
+    const orderJson = order.toJSON();
     const ns = getNotificationService();
-    if (ns) ns.sendOrderStatusUpdate(order, orderStatus).catch(() => {});
-    return order;
+    if (ns) ns.sendOrderStatusUpdate(orderJson, orderStatus).catch(() => {});
+    return orderJson;
   },
 
   /**
@@ -321,28 +246,18 @@ const orderService = {
       throw err;
     }
 
+    if (!id || !mongoose.isValidObjectId(id)) throw notFound();
+
     const updates = { paymentStatus };
     if (paymentReference) updates.paymentReference = paymentReference;
 
-    if (isDbConnected()) {
-      const query = { _id: id };
-      if (sellerId) query.sellerId = sellerId;
-      const order = await Order.findOneAndUpdate(query, { $set: updates }, { new: true });
-      if (!order) throw new Error('Order not found');
-      return order.toJSON();
-    }
+    const query = { _id: id };
+    if (sellerId) query.sellerId = sellerId;
 
-    const order = memoryOrders.get(id);
-    if (!order || (sellerId && order.sellerId !== sellerId)) throw new Error('Order not found');
-    order.paymentStatus = paymentStatus;
-    if (paymentReference) order.paymentReference = paymentReference;
-    order.updatedAt = new Date().toISOString();
-    memoryOrders.set(id, order);
-    return order;
-  },
+    const order = await Order.findOneAndUpdate(query, { $set: updates }, { new: true });
+    if (!order) throw notFound();
 
-  getMemoryStore() {
-    return memoryOrders;
+    return order.toJSON();
   },
 };
 
