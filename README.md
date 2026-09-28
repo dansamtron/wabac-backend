@@ -267,6 +267,13 @@ shows their full purchase history.
   WhatsApp link previews cannot burn them. Codes expire in 10 minutes, allow 5 attempts,
   and are rate limited per phone (60s cooldown) and per IP (10/hour).
 - Only hashes of codes and link tokens are stored; documents self-destruct via a TTL index.
+- **AI agent tools are scoped to the conversation counterparty.** Tool executors receive
+  a context (`customerPhone` / `shopperId`) in addition to `sellerId`, so `getOrder` and
+  `createPayment` only touch orders belonging to the person in that chat, and `createOrder`
+  files the order under the number we are actually talking to. Unknown ownership answers
+  "not found" rather than "forbidden", so the agent cannot be used to probe which order IDs
+  exist. A seller authenticated against their own tenant (dashboard / agent test console)
+  keeps tenant-wide access.
 
 ### Local testing without a WhatsApp Business account
 

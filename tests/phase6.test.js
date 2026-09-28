@@ -6,6 +6,9 @@
 const http = require('http');
 const app = require('../server');
 const { setupTestDb, teardownTestDb } = require('./helpers/testDb');
+const getOrderTool = require('../services/ai/tools/getOrder');
+const createPaymentTool = require('../services/ai/tools/createPayment');
+const { buildToolContext } = require('../services/ai/toolGuards');
 const authService = require('../services/auth/authService');
 const productService = require('../services/products/productService');
 
@@ -143,6 +146,56 @@ async function runTests() {
       throw new Error(`AI payment creation failed: ${JSON.stringify(payData)}`);
     }
     console.log('  [PASS] AI executed createPayment tool and provided Paystack checkout link');
+
+    // 7. Tool scoping: a store's agent must not expose one customer's order to another
+    console.log('Testing AI tool ownership scoping...');
+    const targetOrderId = confirmData.orderId;
+
+    const ownerCtx = buildToolContext({ sellerId: seller.id, customerPhone });
+    const ownerView = await getOrderTool.execute(seller.id, { orderId: targetOrderId }, ownerCtx);
+    if (!ownerView || ownerView.id !== targetOrderId || !ownerView.deliveryAddress) {
+      throw new Error(`Owner could not read their own order: ${JSON.stringify(ownerView)}`);
+    }
+
+    const strangerCtx = buildToolContext({ sellerId: seller.id, customerPhone: '+2348011112222' });
+    let strangerBlocked = false;
+    try {
+      await getOrderTool.execute(seller.id, { orderId: targetOrderId }, strangerCtx);
+    } catch (err) {
+      strangerBlocked = /not found/i.test(err.message);
+    }
+    if (!strangerBlocked) {
+      throw new Error("SECURITY: another customer of the same store read this order through the AI agent");
+    }
+
+    const anonCtx = buildToolContext({ sellerId: seller.id, customerPhone: 'anon_customer' });
+    let anonBlocked = false;
+    try {
+      await getOrderTool.execute(seller.id, { orderId: targetOrderId }, anonCtx);
+    } catch (err) {
+      anonBlocked = /not found/i.test(err.message);
+    }
+    if (!anonBlocked) {
+      throw new Error('SECURITY: an unidentified chat session read a customer order through the AI agent');
+    }
+
+    let strangerPaymentBlocked = false;
+    try {
+      await createPaymentTool.execute(seller.id, { orderId: targetOrderId }, strangerCtx);
+    } catch (err) {
+      strangerPaymentBlocked = /not found/i.test(err.message);
+    }
+    if (!strangerPaymentBlocked) {
+      throw new Error("SECURITY: a stranger generated a payment link for someone else's order");
+    }
+
+    // The seller's own authenticated console legitimately sees tenant-wide data
+    const sellerCtx = buildToolContext({ sellerId: seller.id, customerPhone: 'anon_customer', trusted: true });
+    const sellerView = await getOrderTool.execute(seller.id, { orderId: targetOrderId }, sellerCtx);
+    if (!sellerView || sellerView.id !== targetOrderId) {
+      throw new Error('Seller console lost access to its own tenant order');
+    }
+    console.log('  [PASS] Order tools scoped to the conversation counterparty (stranger and anonymous blocked)');
 
     console.log('=== All Phase 6 Tests Passed Successfully! ===');
   } finally {

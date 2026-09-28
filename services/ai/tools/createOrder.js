@@ -3,6 +3,7 @@
  */
 
 const orderService = require('../../orders/orderService');
+const { comparablePhone } = require('../toolGuards');
 
 const definition = {
   type: 'function',
@@ -43,11 +44,23 @@ const definition = {
   },
 };
 
-async function execute(sellerId, args) {
+async function execute(sellerId, args, context = {}) {
+  const customer = { ...args.customer };
+
+  // In a customer conversation the buyer is whoever we are chatting with, so
+  // the agent cannot be talked into filing an order under another number.
+  // A seller working in their own console (trusted) may set it explicitly.
+  const counterparty = comparablePhone(context.customerPhone);
+  if (!context.trusted && counterparty) {
+    customer.phone = counterparty;
+    if (context.shopperId) customer.shopperId = context.shopperId;
+  }
+
   return orderService.create(sellerId, {
-    customer: args.customer,
+    customer,
+    shopperId: context.shopperId || null,
     items: args.items,
-    deliveryAddress: args.deliveryAddress || args.customer.address,
+    deliveryAddress: args.deliveryAddress || customer.address,
   });
 }
 

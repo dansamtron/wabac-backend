@@ -15,6 +15,7 @@ const getOrder = require('./tools/getOrder');
 const createPayment = require('./tools/createPayment');
 const logger = require('../../utils/logger');
 const { sanitize } = require('../../utils/validators');
+const { buildToolContext } = require('./toolGuards');
 
 const toolsRegistry = {
   searchProducts: searchProducts.execute,
@@ -57,7 +58,10 @@ const aiService = {
   /**
    * Main conversational commerce chat loop
    */
-  async chat({ sellerId, customerPhone, body, history = [] }) {
+  async chat({ sellerId, customerPhone, body, history = [], shopperId = null, trusted = false }) {
+    // Identity of who we are talking to; tools are scoped to it so per-customer
+    // data cannot be read by another customer of the same store.
+    const toolContext = buildToolContext({ sellerId, customerPhone, shopperId, trusted });
     if (!sellerId || !body) {
       throw new Error('sellerId and message body are required');
     }
@@ -106,7 +110,7 @@ const aiService = {
             let result = null;
             if (executor) {
               try {
-                result = await executor(sellerId, args);
+                result = await executor(sellerId, args, toolContext);
               } catch (err) {
                 result = { error: err.message };
               }
@@ -147,14 +151,15 @@ const aiService = {
     }
 
     // Intelligent Deterministic Tool Execution Agent (fallback for offline/dev/test)
-    return this.fallbackToolAgent(sellerId, customerPhone, cleanBody, businessName);
+    return this.fallbackToolAgent(sellerId, customerPhone, cleanBody, businessName, toolContext);
   },
 
   /**
    * Deterministic Tool Execution Agent
    * Orchestrates the exact same backend tools without requiring external OpenAI network access
    */
-  async fallbackToolAgent(sellerId, customerPhone, body, businessName) {
+  async fallbackToolAgent(sellerId, customerPhone, body, businessName, toolContext = null) {
+    const ctxScope = toolContext || buildToolContext({ sellerId, customerPhone });
     const lower = body.toLowerCase().trim();
     const ctx = getContext(sellerId, customerPhone);
     const toolCalls = [];
@@ -173,7 +178,7 @@ const aiService = {
       };
 
       try {
-        const order = await toolsRegistry.createOrder(sellerId, orderArgs);
+        const order = await toolsRegistry.createOrder(sellerId, orderArgs, ctxScope);
         toolCalls.push({ id: toolCallId, name: 'createOrder', arguments: orderArgs, result: order });
         ctx.lastOrderId = order.id;
         saveContext(ctx);
@@ -201,7 +206,7 @@ const aiService = {
     // 2. Greetings
     if (/^(hi|hello|hey|good morning|good afternoon)\b/i.test(lower)) {
       const toolCallId = 'call_' + Date.now();
-      const products = await toolsRegistry.searchProducts(sellerId, { limit: 3 });
+      const products = await toolsRegistry.searchProducts(sellerId, { limit: 3 }, ctxScope);
       toolCalls.push({ id: toolCallId, name: 'searchProducts', arguments: { limit: 3 }, result: products });
 
       const list = products.map((p) => `• ${p.name} — ₦${p.price.toLocaleString()} (${p.stock > 0 ? `${p.stock} in stock` : 'out of stock'})`).join('\n');
@@ -228,7 +233,7 @@ const aiService = {
       }
 
       const toolCallId = 'call_' + Date.now();
-      const payResult = await toolsRegistry.createPayment(sellerId, { orderId });
+      const payResult = await toolsRegistry.createPayment(sellerId, { orderId }, ctxScope);
       toolCalls.push({ id: toolCallId, name: 'createPayment', arguments: { orderId }, result: payResult });
 
       return {
@@ -251,17 +256,17 @@ const aiService = {
     if (hasOrderIntent && hasAddress) {
       const qtyMatch = lower.match(/\b([1-9]|10)\b/);
       const qty = qtyMatch ? parseInt(qtyMatch[1], 10) : 1;
-      const targetId = ctx.pendingProductId || (await toolsRegistry.searchProducts(sellerId, { limit: 1 }))[0]?.id;
+      const targetId = ctx.pendingProductId || (await toolsRegistry.searchProducts(sellerId, { limit: 1 }, ctxScope))[0]?.id;
 
       if (targetId) {
-        const totalCalc = await toolsRegistry.calculateOrderTotal(sellerId, { items: [{ productId: targetId, quantity: qty }] });
+        const totalCalc = await toolsRegistry.calculateOrderTotal(sellerId, { items: [{ productId: targetId, quantity: qty }] }, ctxScope);
         ctx.pendingProductId = targetId;
         ctx.pendingQuantity = qty;
         ctx.pendingAddress = body;
         ctx.awaitingConfirmation = true;
         saveContext(ctx);
 
-        const targetProduct = await toolsRegistry.getProduct(sellerId, { productId: targetId });
+        const targetProduct = await toolsRegistry.getProduct(sellerId, { productId: targetId }, ctxScope);
         return {
           reply: (
             `Order Summary:\n` +
@@ -298,7 +303,7 @@ const aiService = {
       .replace(/^(the|a|an)\s+/i, '')
       .replace(/[?!.,;]/g, '')
       .trim();
-    const products = await toolsRegistry.searchProducts(sellerId, { query: cleanSearchQuery, limit: 3 });
+    const products = await toolsRegistry.searchProducts(sellerId, { query: cleanSearchQuery, limit: 3 }, ctxScope);
     const toolCallId = 'call_' + Date.now();
     toolCalls.push({ id: toolCallId, name: 'searchProducts', arguments: { query: cleanSearchQuery }, result: products });
 
@@ -318,7 +323,7 @@ const aiService = {
 
       if (hasAddress && target.stock > 0) {
         const qty = qtyMatch ? parseInt(qtyMatch[1], 10) : 1;
-        const totalCalc = await toolsRegistry.calculateOrderTotal(sellerId, { items: [{ productId: target.id, quantity: qty }] });
+        const totalCalc = await toolsRegistry.calculateOrderTotal(sellerId, { items: [{ productId: target.id, quantity: qty }] }, ctxScope);
 
         ctx.pendingProductId = target.id;
         ctx.pendingQuantity = qty;
