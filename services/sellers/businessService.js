@@ -80,7 +80,9 @@ const businessService = {
    */
   async getWithSecrets(sellerId) {
     if (!sellerId) return null;
-    const business = await Business.findOne({ sellerId }).select('+whatsappAccessToken');
+    const business = await Business.findOne({ sellerId }).select(
+      '+whatsappAccessToken +telegramBotToken +telegramWebhookSecret'
+    );
     return business ? business.toObject() : null;
   },
 

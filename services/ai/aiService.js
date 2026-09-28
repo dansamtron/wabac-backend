@@ -42,26 +42,50 @@ const toolsDefinitions = [
 // Conversation session state store for customer interactions
 const contextStore = new Map();
 
-function getContext(sellerId, customerPhone) {
-  const key = `${sellerId}_${customerPhone}`;
+function getContext(sellerId, contextKey, customerPhone) {
+  const key = `${sellerId}_${contextKey}`;
   if (!contextStore.has(key)) {
-    contextStore.set(key, { sellerId, customerPhone });
+    contextStore.set(key, { sellerId, customerPhone, contextKey });
   }
-  return contextStore.get(key);
+  const context = contextStore.get(key);
+  // A Telegram contact may become known after the conversation starts.
+  context.customerPhone = customerPhone;
+  return context;
 }
 
 function saveContext(ctx) {
-  contextStore.set(`${ctx.sellerId}_${ctx.customerPhone}`, ctx);
+  contextStore.set(`${ctx.sellerId}_${ctx.contextKey || ctx.customerPhone}`, ctx);
 }
 
 const aiService = {
   /**
    * Main conversational commerce chat loop
    */
-  async chat({ sellerId, customerPhone, body, history = [], shopperId = null, trusted = false }) {
+  async chat({
+    sellerId,
+    customerPhone,
+    body,
+    history = [],
+    shopperId = null,
+    channel = '',
+    channelAccountId = '',
+    channelUserId = '',
+    channelUsername = '',
+    conversationKey = '',
+    trusted = false,
+  }) {
     // Identity of who we are talking to; tools are scoped to it so per-customer
     // data cannot be read by another customer of the same store.
-    const toolContext = buildToolContext({ sellerId, customerPhone, shopperId, trusted });
+    const toolContext = buildToolContext({
+      sellerId,
+      customerPhone,
+      shopperId,
+      channel,
+      channelAccountId,
+      channelUserId,
+      channelUsername,
+      trusted,
+    });
     if (!sellerId || !body) {
       throw new Error('sellerId and message body are required');
     }
@@ -71,7 +95,13 @@ const aiService = {
     const deliveryInfo = business ? business.deliveryInfo : '';
     const paymentInfo = business ? business.paymentMethod : '';
 
-    const systemPrompt = getSystemPrompt({ businessName, deliveryInfo, paymentInfo });
+    const systemPrompt = getSystemPrompt({
+      businessName,
+      deliveryInfo,
+      paymentInfo,
+      channel: channel || 'web chat',
+      contactAvailable: Boolean(customerPhone && /^\+?[\d\s()\-]+$/.test(customerPhone)),
+    });
     const cleanBody = sanitize(body, 4000);
 
     // If live OpenAI key is configured, use official SDK with function calling
@@ -151,17 +181,31 @@ const aiService = {
     }
 
     // Intelligent Deterministic Tool Execution Agent (fallback for offline/dev/test)
-    return this.fallbackToolAgent(sellerId, customerPhone, cleanBody, businessName, toolContext);
+    return this.fallbackToolAgent(
+      sellerId,
+      customerPhone,
+      cleanBody,
+      businessName,
+      toolContext,
+      conversationKey || (channel && channelUserId ? `${channel}:${channelUserId}` : customerPhone)
+    );
   },
 
   /**
    * Deterministic Tool Execution Agent
    * Orchestrates the exact same backend tools without requiring external OpenAI network access
    */
-  async fallbackToolAgent(sellerId, customerPhone, body, businessName, toolContext = null) {
+  async fallbackToolAgent(
+    sellerId,
+    customerPhone,
+    body,
+    businessName,
+    toolContext = null,
+    conversationKey = customerPhone
+  ) {
     const ctxScope = toolContext || buildToolContext({ sellerId, customerPhone });
     const lower = body.toLowerCase().trim();
-    const ctx = getContext(sellerId, customerPhone);
+    const ctx = getContext(sellerId, conversationKey, customerPhone);
     const toolCalls = [];
 
     // 1. Order Confirmation handling (when awaiting YES / CONFIRM)

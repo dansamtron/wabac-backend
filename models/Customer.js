@@ -5,6 +5,17 @@
 
 const mongoose = require('mongoose');
 
+const channelIdentitySchema = new mongoose.Schema(
+  {
+    channel: { type: String, enum: ['telegram'], required: true },
+    externalId: { type: String, required: true, trim: true },
+    handle: { type: String, default: '', trim: true },
+    displayName: { type: String, default: '', trim: true },
+    linkedAt: { type: Date, default: Date.now },
+  },
+  { _id: false }
+);
+
 const customerSchema = new mongoose.Schema(
   {
     sellerId: {
@@ -12,7 +23,7 @@ const customerSchema = new mongoose.Schema(
       required: [true, 'Seller ID is required for tenant isolation'],
       index: true,
     },
-    // Links this per-seller CRM record to the global phone-verified buyer identity
+    // Links this per-seller CRM record to the global email-verified buyer identity
     shopperId: {
       type: String,
       default: null,
@@ -26,9 +37,13 @@ const customerSchema = new mongoose.Schema(
     },
     phone: {
       type: String,
-      required: [true, 'Phone number is required'],
+      default: '',
       trim: true,
       index: true,
+    },
+    identities: {
+      type: [channelIdentitySchema],
+      default: [],
     },
     whatsappId: {
       type: String,
@@ -86,7 +101,20 @@ const customerSchema = new mongoose.Schema(
 
 // Compound index for fast lookup of a customer under a specific seller
 customerSchema.index({ sellerId: 1, phone: 1 });
-customerSchema.index({ sellerId: 1, phone: 1, email: 1 }, { unique: true });
+customerSchema.index(
+  { sellerId: 1, phone: 1, email: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      phone: { $type: 'string', $gt: '' },
+      email: { $type: 'string', $gt: '' },
+    },
+  }
+);
+customerSchema.index(
+  { sellerId: 1, 'identities.channel': 1, 'identities.externalId': 1 },
+  { unique: true }
+);
 customerSchema.index({ sellerId: 1, lastOrderAt: -1 });
 
 const Customer = mongoose.model('Customer', customerSchema);

@@ -51,17 +51,33 @@ async function execute(sellerId, args, context = {}) {
   // the agent cannot be talked into filing an order under another number.
   // A seller working in their own console (trusted) may set it explicitly.
   const counterparty = comparablePhone(context.customerPhone);
+  if (!context.trusted && context.channel === 'telegram' && !counterparty) {
+    const err = new Error('Please use the Share phone number button before placing an order.');
+    err.statusCode = 400;
+    throw err;
+  }
   if (!context.trusted && counterparty) {
     customer.phone = counterparty;
     if (context.shopperId) customer.shopperId = context.shopperId;
   }
 
-  return orderService.create(sellerId, {
-    customer,
-    shopperId: context.shopperId || null,
-    items: args.items,
-    deliveryAddress: args.deliveryAddress || customer.address,
-  });
+  return orderService.create(
+    sellerId,
+    {
+      customer,
+      shopperId: context.shopperId || null,
+      items: args.items,
+      deliveryAddress: args.deliveryAddress || customer.address,
+    },
+    undefined,
+    {
+      source: context.channel === 'telegram' ? 'telegram' : 'storefront',
+      channel: context.channel || 'storefront',
+      channelAccountId: context.channelAccountId || '',
+      channelUserId: context.channelUserId || '',
+      channelUsername: context.channelUsername || '',
+    }
+  );
 }
 
 module.exports = {

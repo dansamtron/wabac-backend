@@ -114,6 +114,16 @@ const orderSchema = new mongoose.Schema(
       enum: [...MANUAL_CHANNELS, ''],
       default: '',
     },
+    // Automatic channel identity. Telegram notifications and AI ownership use
+    // this pair instead of treating a numeric Telegram id as a phone number.
+    channel: {
+      type: String,
+      enum: ['storefront', 'telegram', ''],
+      default: '',
+    },
+    channelAccountId: { type: String, default: '', trim: true },
+    channelUserId: { type: String, default: '', trim: true },
+    channelUsername: { type: String, default: '', trim: true },
     // Free text context, e.g. "DM from @adaobi_thrifts"
     sourceNote: {
       type: String,
@@ -232,6 +242,7 @@ orderSchema.index({ sellerId: 1, orderStatus: 1 });
 orderSchema.index({ sellerId: 1, paymentStatus: 1 });
 // Dashboard splits automatic vs manually logged orders
 orderSchema.index({ sellerId: 1, source: 1, createdAt: -1 });
+orderSchema.index({ sellerId: 1, channel: 1, channelUserId: 1, createdAt: -1 });
 // Human-quotable reference lookup; sparse because legacy rows have none
 orderSchema.index({ sellerId: 1, orderNumber: -1 }, { unique: true, sparse: true });
 

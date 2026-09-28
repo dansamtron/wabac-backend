@@ -301,11 +301,11 @@ const whatsappService = {
   },
 
   listMessages(sellerId, filters) {
-    return messageService.listMessages(sellerId, filters);
+    return messageService.listMessages(sellerId, { ...(filters || {}), channel: 'whatsapp' });
   },
 
   getConversations(sellerId) {
-    return messageService.getConversations(sellerId);
+    return messageService.getConversations(sellerId, { channel: 'whatsapp' });
   },
 };
 

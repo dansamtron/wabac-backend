@@ -98,7 +98,15 @@ The system architecture is implemented across modular phases following domain-dr
 - **Brevo Email**: Storefront confirmations, magic tracking links, payment receipts, shipping updates, and one-time login codes use the Brevo transactional email API.
 - **Safe OTP Routing**: A request may only select an email already associated with that phone through checkout or a verified shopper profile. Supplying an arbitrary email cannot redirect another buyer's code.
 - **Failure Isolation**: Provider failures are logged and return a normalized delivery result; they never roll back an order or verified payment already stored in MongoDB.
-- **Telegram-Ready**: The dispatcher supports runtime transport registration. Telegram can be added in Phase C without changing the order, payment, or shopper-auth services.
+- **Telegram-Ready**: The dispatcher supports runtime transport registration without changing order, payment, or shopper-auth services.
+
+### Phase 16: Telegram Bot Commerce
+- **Per-Seller Bot Connection**: Sellers connect a BotFather token through `POST /api/telegram/connect`. Bot tokens and webhook secrets are excluded from normal MongoDB queries and every API JSON response.
+- **Signed Production Webhooks**: Updates arrive at `/webhooks/telegram/:botId` and must carry the seller-specific `X-Telegram-Bot-Api-Secret-Token`. `(bot, chat, message_id)` is unique in the transcript store, so webhook retries cannot create duplicate orders.
+- **Local Long Polling**: `npm run telegram:poll` processes bots connected in polling mode during development. Production intentionally rejects the poller and uses HTTPS webhooks.
+- **Progressive Contact**: A buyer can browse immediately. Before checkout, the bot presents Telegram's `request_contact` keyboard and accepts the phone only when `contact.user_id` matches the message sender.
+- **Scoped AI Commerce**: AI tools receive an immutable `(seller, channel, bot, Telegram user)` context. Telegram order reads/payment links require an exact channel-user match and never interpret a numeric Telegram ID as a phone number.
+- **Transactions + Marketing**: Telegram orders retain indexed provenance, use existing Paystack checkout links, receive in-chat confirmations/receipts/status updates, and can receive throttled campaigns only after initiating the bot. `/stop` opts out of marketing.
 
 ---
 
@@ -128,7 +136,13 @@ The system architecture is implemented across modular phases following domain-dr
 | `GET` | `/api/orders/:id/share` | Copyable summary + pre-filled `wa.me` link (no API send) | Bearer Token |
 | `PATCH` | `/api/orders/:id/status`| Update order status | Bearer Token |
 | `GET` | `/api/customers` | Seller customer list & metrics | Bearer Token |
-| `GET` | `/api/whatsapp/webhook` | Meta verification handshake | Public |
+| `GET` | `/api/telegram/config` | Get masked bot connection state | Bearer Token |
+| `POST` | `/api/telegram/connect` | Validate/connect bot and configure webhook or polling | Bearer Token |
+| `DELETE` | `/api/telegram/disconnect` | Remove webhook and stored bot credentials | Bearer Token |
+| `GET` | `/api/telegram/conversations` | List Telegram customer threads | Bearer Token |
+| `GET` | `/api/telegram/messages` | List Telegram transcripts | Bearer Token |
+| `POST` | `/webhooks/telegram/:botId` | Receive Telegram updates | Secret Header |
+| `GET` | `/api/whatsapp/webhook` | Meta verification handshake (temporary Phase C compatibility) | Public |
 | `POST` | `/api/whatsapp/webhook` | Meta inbound webhook events | Public |
 | `POST` | `/api/whatsapp/incoming`| Process inbound WhatsApp message | Public / Webhook |
 | `POST` | `/api/whatsapp/send` | Dispatch outbound WhatsApp message | Bearer Token |
@@ -254,6 +268,30 @@ BREVO_SENDER_NAME="Your Platform"
 `BREVO_API_URL` normally stays at `https://api.brevo.com/v3/smtp/email`; the override exists
 for local integration tests. Missing/failed email delivery is logged but never reverses a
 stored order or verified payment.
+
+### Telegram bot setup
+
+1. Create a bot with Telegram's `@BotFather` and copy its token.
+2. Set the backend's public HTTPS origin (`API_PUBLIC_URL` or `TELEGRAM_WEBHOOK_BASE_URL`).
+3. As the authenticated seller, connect the token:
+
+```bash
+curl -X POST "$API_URL/api/telegram/connect" \
+  -H "Authorization: Bearer $SELLER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"botToken":"123456:bot-token","mode":"webhook"}'
+```
+
+The API validates the token through `getMe`, generates a per-bot webhook secret, registers
+only message/callback updates, and returns masked connection state. It never returns the token
+or secret. For local development, omit a webhook URL or pass `"mode":"polling"`, then run:
+
+```bash
+npm run telegram:poll
+```
+
+Long polling deletes the bot webhook to avoid Telegram `409 Conflict` errors and is blocked
+when `NODE_ENV=production`. A seller can disconnect with `DELETE /api/telegram/disconnect`.
 
 ---
 

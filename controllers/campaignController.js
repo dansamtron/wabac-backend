@@ -27,7 +27,7 @@ const campaignController = {
    */
   async listCampaigns(req, res, next) {
     try {
-      const campaigns = await campaignService.list(req.sellerId);
+      const campaigns = await campaignService.list(req.sellerId, req.query);
       res.status(200).json(campaigns);
     } catch (error) {
       next(error);

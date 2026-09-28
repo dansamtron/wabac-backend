@@ -143,6 +143,123 @@ const customerService = {
     return this.create(sellerId, payload);
   },
 
+  /** Find a CRM profile by channel identity (e.g. Telegram user id). */
+  async findByIdentity(sellerId, channel, externalId) {
+    if (!sellerId || !channel || !externalId) return null;
+    const customer = await Customer.findOne({
+      sellerId,
+      identities: { $elemMatch: { channel, externalId: String(externalId) } },
+    });
+    return customer ? customer.toJSON() : null;
+  },
+
+  /** Create/update a customer as soon as they start a channel conversation. */
+  async upsertChannelIdentity(sellerId, { channel, externalId, handle = '', displayName = '' }) {
+    if (!sellerId || !channel || !externalId) {
+      const err = new Error('Seller, channel, and external identity are required');
+      err.statusCode = 400;
+      throw err;
+    }
+
+    const id = String(externalId);
+    const existing = await Customer.findOne({
+      sellerId,
+      identities: { $elemMatch: { channel, externalId: id } },
+    });
+
+    if (existing) {
+      const identity = existing.identities.find(
+        (item) => item.channel === channel && item.externalId === id
+      );
+      if (identity) {
+        identity.handle = sanitize(handle, 100);
+        identity.displayName = sanitize(displayName, 100);
+      }
+      if (displayName) existing.name = sanitize(displayName, 100);
+      await existing.save();
+      return existing.toJSON();
+    }
+
+    const customer = await Customer.create({
+      sellerId,
+      name: sanitize(displayName, 100) || `${channel} customer`,
+      phone: '',
+      email: '',
+      identities: [{
+        channel,
+        externalId: id,
+        handle: sanitize(handle, 100),
+        displayName: sanitize(displayName, 100),
+      }],
+    });
+    return customer.toJSON();
+  },
+
+  /**
+   * Attach a phone shared by the channel account owner. This intentionally does
+   * not claim a same-phone storefront row, whose email identity is unproven.
+   */
+  async attachPhoneToIdentity(sellerId, { channel, externalId, phone, handle = '', displayName = '' }) {
+    const cleanPhone = normalizePhone(phone) || String(phone || '').trim();
+    if (!cleanPhone) {
+      const err = new Error('A valid phone number is required');
+      err.statusCode = 400;
+      throw err;
+    }
+
+    const channelCustomer = await Customer.findOne({
+      sellerId,
+      identities: { $elemMatch: { channel, externalId: String(externalId) } },
+    });
+    if (!channelCustomer) {
+      await this.upsertChannelIdentity(sellerId, { channel, externalId, handle, displayName });
+      return this.attachPhoneToIdentity(sellerId, { channel, externalId, phone: cleanPhone, handle, displayName });
+    }
+
+    const identity = {
+      handle: sanitize(handle, 100),
+      displayName: sanitize(displayName, 100),
+    };
+
+    channelCustomer.phone = cleanPhone;
+    if (displayName) channelCustomer.name = sanitize(displayName, 100);
+    const currentIdentity = channelCustomer.identities.find(
+      (item) => item.channel === channel && item.externalId === String(externalId)
+    );
+    if (currentIdentity) {
+      currentIdentity.handle = identity.handle;
+      currentIdentity.displayName = identity.displayName;
+    }
+    await channelCustomer.save();
+    return channelCustomer.toJSON();
+  },
+
+  async refreshByIdentity(sellerId, channel, externalId, payload = {}) {
+    const customer = await Customer.findOne({
+      sellerId,
+      identities: { $elemMatch: { channel, externalId: String(externalId) } },
+    });
+    if (!customer) return null;
+    if (payload.name) customer.name = sanitize(payload.name, 100);
+    if (payload.phone) customer.phone = normalizePhone(payload.phone) || String(payload.phone).trim();
+    const address = payload.address ? sanitize(payload.address, 300) : '';
+    if (address && !customer.addresses.includes(address)) customer.addresses.push(address);
+    await customer.save();
+    return customer.toJSON();
+  },
+
+  async setOptOutByIdentity(sellerId, channel, externalId, optOut = true) {
+    const customer = await Customer.findOneAndUpdate(
+      {
+        sellerId,
+        identities: { $elemMatch: { channel, externalId: String(externalId) } },
+      },
+      { $set: { marketingOptOut: !!optOut } },
+      { new: true }
+    );
+    return customer ? customer.toJSON() : null;
+  },
+
   /**
    * Increment purchasing metrics when an order is created
    */

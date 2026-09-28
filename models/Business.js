@@ -121,6 +121,47 @@ const businessSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+
+    // Telegram Bot API connection. Secrets are excluded from every normal query
+    // and JSON response; server-side adapters explicitly opt in with select().
+    telegramBotId: {
+      type: String,
+      trim: true,
+      unique: true,
+      sparse: true,
+    },
+    telegramBotUsername: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    telegramBotToken: {
+      type: String,
+      trim: true,
+      select: false,
+    },
+    telegramWebhookSecret: {
+      type: String,
+      trim: true,
+      select: false,
+    },
+    telegramWebhookUrl: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    telegramConnected: {
+      type: Boolean,
+      default: false,
+    },
+    telegramConnectedAt: {
+      type: Date,
+      default: null,
+    },
+    telegramWebhookVerified: {
+      type: Boolean,
+      default: false,
+    },
   },
   {
     timestamps: true,
@@ -130,8 +171,10 @@ const businessSchema = new mongoose.Schema(
         ret.id = ret._id ? ret._id.toString() : ret.id;
         delete ret._id;
         delete ret.__v;
-        // Never expose the WhatsApp system-user token through an API response
+        // Never expose channel credentials through an API response
         delete ret.whatsappAccessToken;
+        delete ret.telegramBotToken;
+        delete ret.telegramWebhookSecret;
         return ret;
       },
     },

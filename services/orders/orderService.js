@@ -65,16 +65,43 @@ const orderService = {
     const rawEmail = String(payload.customer.email || '').trim().toLowerCase();
     const customerEmail = isEmail(rawEmail) ? rawEmail : '';
     const customerAddress = sanitize(payload.deliveryAddress || payload.customer.address || '', 300);
+    const source = AUTOMATIC_SOURCES.includes(options.source) ? options.source : 'storefront';
 
-    // Upsert customer profile under seller
-    const customer = await customerService.upsert(sellerId, {
-      name: customerName,
-      phone: customerPhone,
-      whatsappId: payload.customer.whatsappId || customerPhone,
-      address: customerAddress,
-      email: customerEmail,
-      shopperId: payload.shopperId || null,
-    });
+    // Telegram identity is decisive. Contact sharing may prove a phone but it
+    // must not merge or claim a same-phone storefront/email profile.
+    let customer;
+    if (source === 'telegram' && options.channelUserId) {
+      customer = await customerService.findByIdentity(
+        sellerId,
+        'telegram',
+        String(options.channelUserId)
+      );
+      if (!customer || !customer.phone || customer.phone !== customerPhone) {
+        const err = new Error('Share your own phone number in Telegram before placing an order');
+        err.statusCode = 400;
+        throw err;
+      }
+      customer = await customerService.refreshByIdentity(
+        sellerId,
+        'telegram',
+        String(options.channelUserId),
+        {
+          name: customerName,
+          phone: customerPhone,
+          address: customerAddress,
+        }
+      );
+    } else {
+      // Storefront identity continues to use exact phone+email profiles.
+      customer = await customerService.upsert(sellerId, {
+        name: customerName,
+        phone: customerPhone,
+        whatsappId: payload.customer.whatsappId || customerPhone,
+        address: customerAddress,
+        email: customerEmail,
+        shopperId: payload.shopperId || null,
+      });
+    }
 
     // Validate and freeze authoritative prices for each order item
     const validatedItems = [];
@@ -154,7 +181,6 @@ const orderService = {
     // request nor an AI tool may assert that money was received; only the
     // Paystack verification path may promote it to Paid. Manually logged orders
     // use the separate, seller-authenticated manualOrderService.
-    const source = AUTOMATIC_SOURCES.includes(options.source) ? options.source : 'storefront';
     const orderNumber = await nextOrderNumber(sellerId);
 
     const order = await Order.create({
@@ -166,6 +192,10 @@ const orderService = {
       customerWhatsappId: customer.whatsappId || customerPhone,
       source,
       sourceChannel: '',
+      channel: options.channel || (source === 'telegram' ? 'telegram' : 'storefront'),
+      channelAccountId: options.channelAccountId || '',
+      channelUserId: options.channelUserId || '',
+      channelUsername: options.channelUsername || '',
       sourceNote: '',
       enteredBy: '',
       orderNumber,

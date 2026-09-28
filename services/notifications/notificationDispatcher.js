@@ -8,9 +8,13 @@
  */
 
 const brevoEmailTransport = require('./transports/brevoEmailTransport');
+const telegramTransport = require('./transports/telegramTransport');
 const logger = require('../../utils/logger');
 
-const transports = new Map([['email', brevoEmailTransport]]);
+const transports = new Map([
+  ['email', brevoEmailTransport],
+  ['telegram', telegramTransport],
+]);
 
 function registerTransport(channel, transport) {
   const name = String(channel || '').trim().toLowerCase();

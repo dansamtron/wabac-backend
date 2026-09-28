@@ -1,6 +1,6 @@
 /**
- * Conversation Mongoose Model
- * Aggregates message threads between sellers and customer WhatsApp numbers
+ * Channel Conversation Model
+ * Aggregates seller/customer threads independently of the transport adapter.
  */
 
 const mongoose = require('mongoose');
@@ -12,28 +12,27 @@ const conversationSchema = new mongoose.Schema(
       required: [true, 'Seller ID is required for tenant isolation'],
       index: true,
     },
-    customerPhone: {
+    channel: {
       type: String,
+      enum: ['whatsapp', 'telegram'],
+      default: 'whatsapp',
       required: true,
       index: true,
     },
-    businessPhone: {
-      type: String,
-      default: '',
-    },
-    lastMessage: {
-      type: String,
-      default: '',
-    },
-    lastMessageAt: {
-      type: Date,
-      default: Date.now,
-      index: true,
-    },
-    unreadCount: {
-      type: Number,
-      default: 0,
-    },
+    // Seller-side account on the transport (WhatsApp business phone / Telegram bot id)
+    channelAccountId: { type: String, default: '', trim: true },
+    // Customer-side transport identity. For WhatsApp this is the normalized phone.
+    channelUserId: { type: String, required: true, trim: true },
+    channelUsername: { type: String, default: '', trim: true },
+    customerName: { type: String, default: '', trim: true },
+
+    // Legacy/contact fields retained during the reversible Phase C cutover.
+    customerPhone: { type: String, default: '', index: true },
+    businessPhone: { type: String, default: '' },
+
+    lastMessage: { type: String, default: '' },
+    lastMessageAt: { type: Date, default: Date.now, index: true },
+    unreadCount: { type: Number, default: 0 },
   },
   {
     timestamps: true,
@@ -49,7 +48,10 @@ const conversationSchema = new mongoose.Schema(
   }
 );
 
-conversationSchema.index({ sellerId: 1, customerPhone: 1 }, { unique: true });
+conversationSchema.index(
+  { sellerId: 1, channel: 1, channelUserId: 1 },
+  { unique: true }
+);
 conversationSchema.index({ sellerId: 1, lastMessageAt: -1 });
 
 const Conversation = mongoose.model('Conversation', conversationSchema);

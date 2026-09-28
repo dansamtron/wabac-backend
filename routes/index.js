@@ -25,6 +25,7 @@ const payoutRoutes = require('./payoutRoutes');
 const campaignRoutes = require('./campaignRoutes');
 const storefrontRoutes = require('./storefrontRoutes');
 const shopRoutes = require('./shopRoutes');
+const telegramRoutes = require('./telegramRoutes');
 
 // Root & System Health
 router.use('/', rootRoutes);
@@ -36,6 +37,7 @@ router.use('/api/health', healthRoutes);
 router.use(['/api', '/webhooks'], requireDatabase);
 
 // Feature APIs
+router.use('/', telegramRoutes);
 router.use('/api/auth', authRoutes);
 router.use('/api/sellers', sellerRoutes);
 router.use('/api/business', sellerRoutes); // Direct mount for businessService compatibility
