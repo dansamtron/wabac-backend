@@ -72,16 +72,14 @@ function parseUpdate(update = {}) {
 }
 
 function webhookUrl(botId, explicit = '') {
-  const configured = String(
-    explicit || process.env.TELEGRAM_WEBHOOK_BASE_URL || process.env.API_PUBLIC_URL || ''
-  ).replace(/\/$/, '');
+  const configured = String(explicit || process.env.API_PUBLIC_URL || '').replace(/\/$/, '');
   if (!configured) return '';
   if (configured.includes('/webhooks/telegram/')) return configured;
   return `${configured}/webhooks/telegram/${botId}`;
 }
 
 function validateWebhookUrl(url) {
-  if (!url) throw httpError('Set TELEGRAM_WEBHOOK_BASE_URL or API_PUBLIC_URL for webhook mode');
+  if (!url) throw httpError('Set API_PUBLIC_URL for Telegram webhook mode');
   let parsed;
   try {
     parsed = new URL(url);

@@ -181,6 +181,30 @@ The system architecture is implemented across modular phases following domain-dr
 
 ---
 
+## 🔐 Environment Contract
+
+`.env.example` intentionally lists only deployment inputs used by the application:
+
+| Variable | Required when | Purpose |
+| :--- | :--- | :--- |
+| `NODE_ENV` | Always | Enables production cookie, CORS, indexing, and polling safeguards |
+| `PORT` | Host does not inject one | HTTP listener port |
+| `CLIENT_URL` | Always | Browser CORS origin, checkout callbacks, magic links, and order links |
+| `API_PUBLIC_URL` | Production Telegram webhooks | Public HTTPS API origin; local polling can leave it blank |
+| `MONGO_URI` | Always | Durable MongoDB connection |
+| `JWT_SECRET` | Always | Seller/shopper token signing and buyer-token hashing |
+| `BREVO_API_KEY`, `BREVO_SENDER_EMAIL`, `BREVO_SENDER_NAME` | Email delivery | Transactional email provider and sender identity |
+| `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET` | Media uploads | Product image storage |
+| `OPENAI_API_KEY` | OpenAI agent | Optional; deterministic commerce behavior remains available without it |
+| `PAYSTACK_SECRET_KEY` | Payments or payouts | Server-side Paystack API calls and webhook verification |
+
+Provider URLs, timeouts, model names, token lifetimes, campaign pacing, fee defaults, test-only
+flags, and public payment keys all have safe server defaults or belong in test/runtime tooling,
+so they are not duplicated in the environment template. Telegram bot tokens and webhook
+secrets are seller-owned credentials stored through the authenticated connection flow.
+Run `npm run check-env` after configuration changes to detect stale, duplicate, missing, or
+runtime-unused entries in `.env.example`.
+
 ## 🗄️ Database Requirement & Setup
 
 MongoDB is **mandatory**. The backend persists every entity (users, businesses, products,
@@ -267,7 +291,7 @@ stored order or verified payment.
 ### Telegram bot setup
 
 1. Create a bot with Telegram's `@BotFather` and copy its token.
-2. Set the backend's public HTTPS origin (`API_PUBLIC_URL` or `TELEGRAM_WEBHOOK_BASE_URL`).
+2. Set the backend's public HTTPS origin in `API_PUBLIC_URL`.
 3. As the authenticated seller, connect the token:
 
 ```bash
