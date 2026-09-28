@@ -1,16 +1,45 @@
 /**
  * Phase 10 Verification Test Suite
- * Tests Event-Driven Notifications, Customer Segmentation, WhatsApp Marketing Campaigns, Opt-out Compliance, and Abandoned Order Recovery
+ * Tests Brevo transactional notifications plus the legacy WhatsApp campaign,
+ * segmentation, opt-out, and abandoned-order behavior (ported in Phase C/D).
  */
+
+process.env.BREVO_API_KEY = 'test_brevo_key';
+process.env.BREVO_SENDER_EMAIL = 'orders@wabac.test';
+process.env.BREVO_SENDER_NAME = 'WABAC Test';
 
 const http = require('http');
 const app = require('../server');
+
+const capturedEmails = [];
+
+async function waitForEmail(predicate, timeoutMs = 2000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const match = capturedEmails.find(predicate);
+    if (match) return match;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  return null;
+}
 const { setupTestDb, teardownTestDb } = require('./helpers/testDb');
 
 async function runTests() {
   console.log('=== Running Phase 10 Verification Tests ===');
 
   await setupTestDb();
+
+  const brevoServer = http.createServer((req, res) => {
+    let raw = '';
+    req.on('data', (chunk) => { raw += chunk; });
+    req.on('end', () => {
+      capturedEmails.push(JSON.parse(raw || '{}'));
+      res.writeHead(201, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ messageId: `test-${capturedEmails.length}` }));
+    });
+  });
+  await new Promise((resolve) => brevoServer.listen(0, '127.0.0.1', resolve));
+  process.env.BREVO_API_URL = `http://127.0.0.1:${brevoServer.address().port}/v3/smtp/email`;
 
   const server = http.createServer(app);
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -70,22 +99,27 @@ async function runTests() {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        customer: { name: 'Kemi Adebisi', phone: '+2348099887766', address: 'Lekki Phase 1, Lagos' },
+        customer: {
+          name: 'Kemi Adebisi',
+          phone: '+2348099887766',
+          email: 'kemi@test.com',
+          address: 'Lekki Phase 1, Lagos',
+        },
         items: [{ productId: prod.id, quantity: 1 }],
       }),
     });
     const order = await orderRes.json();
 
-    // Check message transcript for Order Confirmation notification
-    const msgsRes1 = await fetch(`${baseUrl}/api/whatsapp/messages?customerPhone=%2B2348099887766`, {
-      headers: { 'Authorization': `Bearer ${sellerToken}` },
-    });
-    const msgs1 = await msgsRes1.json();
-    const confirmMsg = msgs1.find((m) => m.body.includes('Order Confirmed') && m.body.includes(order.id));
-    if (!confirmMsg) {
-      throw new Error(`Order confirmation notification was not dispatched: ${JSON.stringify(msgs1)}`);
+    const confirmEmail = await waitForEmail(
+      (email) => email.subject && email.subject.includes('confirmed') && email.to[0].email === 'kemi@test.com'
+    );
+    if (!confirmEmail || !confirmEmail.textContent.includes(order.reference)) {
+      throw new Error(`Order confirmation email was not dispatched: ${JSON.stringify(capturedEmails)}`);
     }
-    console.log(`  [PASS] Order Confirmation notification delivered to customer (+2348099887766)`);
+    if (!confirmEmail.htmlContent.includes('/track?t=')) {
+      throw new Error('Order confirmation email did not include the single-use tracking link');
+    }
+    console.log('  [PASS] Order confirmation delivered through Brevo email');
 
     // Test Order Status Transition Notification (Shipped)
     console.log('Testing Order Status Update Notification (Shipped)...');
@@ -98,15 +132,11 @@ async function runTests() {
       body: JSON.stringify({ status: 'Shipped' }),
     });
 
-    const msgsRes2 = await fetch(`${baseUrl}/api/whatsapp/messages?customerPhone=%2B2348099887766`, {
-      headers: { 'Authorization': `Bearer ${sellerToken}` },
-    });
-    const msgs2 = await msgsRes2.json();
-    const shippedMsg = msgs2.find((m) => m.body.includes('Shipped'));
-    if (!shippedMsg) {
-      throw new Error('Order Shipped update notification was not dispatched');
-    }
-    console.log(`  [PASS] Order Status notification (Shipped) delivered to customer`);
+    const shippedEmail = await waitForEmail(
+      (email) => email.subject && email.subject.includes('Shipped') && email.to[0].email === 'kemi@test.com'
+    );
+    if (!shippedEmail) throw new Error('Order Shipped email was not dispatched');
+    console.log('  [PASS] Order status notification delivered through Brevo email');
 
     // Test Payment Receipt Notification
     console.log('Testing Payment Receipt Notification...');
@@ -129,15 +159,14 @@ async function runTests() {
       headers: { 'Authorization': `Bearer ${sellerToken}` },
     });
 
-    const msgsRes3 = await fetch(`${baseUrl}/api/whatsapp/messages?customerPhone=%2B2348099887766`, {
-      headers: { 'Authorization': `Bearer ${sellerToken}` },
-    });
-    const msgs3 = await msgsRes3.json();
-    const receiptMsg = msgs3.find((m) => m.body.includes('Payment Received') && m.body.includes(payData.reference));
-    if (!receiptMsg) {
-      throw new Error('Payment receipt notification was not dispatched');
-    }
-    console.log(`  [PASS] Payment Receipt notification delivered to customer`);
+    const receiptEmail = await waitForEmail(
+      (email) =>
+        email.subject &&
+        email.subject.includes('Payment received') &&
+        email.textContent.includes(payData.reference)
+    );
+    if (!receiptEmail) throw new Error('Payment receipt email was not dispatched');
+    console.log('  [PASS] Payment receipt delivered through Brevo email');
 
     // 3. Test WhatsApp Opt-Out Compliance (STOP / START)
     console.log('Testing WhatsApp Marketing Opt-out Compliance (STOP)...');
@@ -308,7 +337,8 @@ async function runTests() {
     console.log(`  [PASS] Abandoned order recovery reminder dispatched for Order #${abandonOrder.id}`);
 
   } finally {
-    server.close();
+    await new Promise((resolve) => server.close(resolve));
+    await new Promise((resolve) => brevoServer.close(resolve));
     await teardownTestDb();
   }
 

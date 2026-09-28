@@ -1,12 +1,12 @@
 /**
  * Phase 13 Verification Test Suite
- * Tests Progressive Buyer Identity: guest checkout, WhatsApp OTP sessions, single-use
+ * Tests Progressive Buyer Identity: guest checkout, email OTP sessions, single-use
  * magic links, claim-on-verify history backfill, cross-audience token isolation,
  * and buyer-scoped order history
  */
 
 // Exposes the generated code in the API response so the flow can run without a
-// live WhatsApp Business account. Must be set before the app is required.
+// live Brevo account. Must be set before the app is required.
 process.env.SHOP_OTP_DEBUG = 'true';
 
 const http = require('http');
@@ -61,17 +61,19 @@ async function runTests() {
     });
 
     const buyerPhone = '+2348090000001';
+    const buyerEmail = 'amara@example.ng';
     const otherPhone = '+2348090000002';
+    const otherEmail = 'somebody@example.ng';
 
     // 1. Guest checkout at two different stores (no account, no session)
     console.log('Testing guest checkout across two stores...');
-    const guestOrder = async (sellerId, productId, phone, name) => {
+    const guestOrder = async (sellerId, productId, phone, email, name) => {
       const res = await fetch(`${baseUrl}/api/orders`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           sellerId,
-          customer: { name, phone },
+          customer: { name, phone, email },
           deliveryAddress: '12 Aba Road, Port Harcourt',
           items: [{ productId, quantity: 1 }],
         }),
@@ -81,10 +83,24 @@ async function runTests() {
       return data;
     };
 
-    const orderA = await guestOrder(sellerA.id, productA.id, buyerPhone, 'Amara O.');
-    const orderB = await guestOrder(sellerB.id, productB.id, buyerPhone, 'Amara O.');
-    const strangerOrder = await guestOrder(sellerA.id, productA.id, otherPhone, 'Somebody Else');
-    console.log('  [PASS] Three guest orders placed with no buyer account');
+    const orderA = await guestOrder(sellerA.id, productA.id, buyerPhone, buyerEmail, 'Amara O.');
+    const orderB = await guestOrder(sellerB.id, productB.id, buyerPhone, buyerEmail, 'Amara O.');
+    const strangerOrder = await guestOrder(
+      sellerA.id,
+      productA.id,
+      otherPhone,
+      otherEmail,
+      'Somebody Else'
+    );
+    // Same phone is not sufficient ownership when email is the proof channel.
+    const forgedPairOrder = await guestOrder(
+      sellerA.id,
+      productA.id,
+      buyerPhone,
+      'attacker@example.ng',
+      'Forged Pair'
+    );
+    console.log('  [PASS] Four guest orders placed with no buyer account');
 
     // 2. Buyer data is not readable without a verified session
     const unauthRes = await fetch(`${baseUrl}/api/shop/me/orders`);
@@ -93,12 +109,12 @@ async function runTests() {
     }
     console.log('  [PASS] Order history rejects unauthenticated buyers');
 
-    // 3. Request a one-time code over WhatsApp
-    console.log('Testing WhatsApp OTP issuance...');
+    // 3. Request a one-time code (debug mode exposes it without Brevo)
+    console.log('Testing email OTP issuance...');
     const otpRes = await fetch(`${baseUrl}/api/shop/auth/request-otp`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone: buyerPhone, sellerId: sellerA.id }),
+      body: JSON.stringify({ phone: buyerPhone, email: buyerEmail, sellerId: sellerA.id }),
     });
     const otpData = await otpRes.json();
     if (otpRes.status !== 200 || !otpData.devCode) {
@@ -110,7 +126,7 @@ async function runTests() {
     const badRes = await fetch(`${baseUrl}/api/shop/auth/verify-otp`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone: buyerPhone, code: '000000' }),
+      body: JSON.stringify({ phone: buyerPhone, email: buyerEmail, code: '000000' }),
     });
     if (badRes.status !== 401) throw new Error(`Expected 401 for wrong code, got ${badRes.status}`);
     console.log('  [PASS] Incorrect code rejected');
@@ -119,7 +135,7 @@ async function runTests() {
     const verifyRes = await fetch(`${baseUrl}/api/shop/auth/verify-otp`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone: buyerPhone, code: otpData.devCode }),
+      body: JSON.stringify({ phone: buyerPhone, email: buyerEmail, code: otpData.devCode }),
     });
     const session = await verifyRes.json();
     if (verifyRes.status !== 200 || !session.token || !session.shopper) {
@@ -128,14 +144,14 @@ async function runTests() {
     if (session.claimed.orders !== 2) {
       throw new Error(`Expected 2 claimed guest orders, got ${session.claimed.orders}`);
     }
-    if (session.shopper.phone !== buyerPhone) {
-      throw new Error(`Shopper phone not normalized: ${JSON.stringify(session.shopper)}`);
+    if (session.shopper.phone !== buyerPhone || session.shopper.email !== buyerEmail) {
+      throw new Error(`Shopper contact identity is wrong: ${JSON.stringify(session.shopper)}`);
     }
     console.log('  [PASS] Session established and 2 guest orders claimed on first verify');
 
     const buyerAuth = { Authorization: `Bearer ${session.token}` };
 
-    // 6. Cross-store history, scoped to the verified phone only
+    // 6. Cross-store history, scoped to the exact verified contact pair
     console.log('Testing buyer order history...');
     const historyRes = await fetch(`${baseUrl}/api/shop/me/orders`, { headers: buyerAuth });
     const history = await historyRes.json();
@@ -146,8 +162,8 @@ async function runTests() {
     if (!historyIds.includes(orderA.id) || !historyIds.includes(orderB.id)) {
       throw new Error('History is missing one of the buyer orders');
     }
-    if (historyIds.includes(strangerOrder.id)) {
-      throw new Error("SECURITY: another buyer's order leaked into history");
+    if (historyIds.includes(strangerOrder.id) || historyIds.includes(forgedPairOrder.id)) {
+      throw new Error("SECURITY: an order with a different verified contact pair leaked into history");
     }
     if (!history[0].store || !history[0].store.name) {
       throw new Error('History entries should carry store attribution');
@@ -204,7 +220,11 @@ async function runTests() {
 
     // 10. Magic link: single use, then dead
     console.log('Testing single-use magic link...');
-    const magic = await shopperAuthService.createMagicLink({ phone: buyerPhone, sellerId: sellerA.id });
+    const magic = await shopperAuthService.createMagicLink({
+      phone: buyerPhone,
+      email: buyerEmail,
+      sellerId: sellerA.id,
+    });
     const magicRes = await fetch(`${baseUrl}/api/shop/auth/magic`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -215,7 +235,7 @@ async function runTests() {
       throw new Error(`Magic link redemption failed: ${JSON.stringify(magicSession)}`);
     }
     if (magicSession.shopper.id !== session.shopper.id) {
-      throw new Error('Magic link created a second identity for the same phone number');
+      throw new Error('Magic link created a second identity for the same email');
     }
 
     const replayRes = await fetch(`${baseUrl}/api/shop/auth/magic`, {
@@ -265,23 +285,23 @@ async function runTests() {
     }
     console.log('  [PASS] Buyer can update their own profile');
 
-    // 13. Resend cooldown protects the OTP endpoint
+    // 13. Per-contact-pair resend cooldown protects the OTP endpoint
     const firstResend = await fetch(`${baseUrl}/api/shop/auth/request-otp`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone: otherPhone }),
+      body: JSON.stringify({ phone: otherPhone, email: otherEmail }),
     });
     if (firstResend.status !== 200) throw new Error('First OTP request should succeed');
 
     const secondResend = await fetch(`${baseUrl}/api/shop/auth/request-otp`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone: otherPhone }),
+      body: JSON.stringify({ phone: otherPhone, email: otherEmail }),
     });
     if (secondResend.status !== 429) {
       throw new Error(`Expected 429 on immediate OTP resend, got ${secondResend.status}`);
     }
-    console.log('  [PASS] Per-phone resend cooldown enforced');
+    console.log('  [PASS] Per-contact-pair resend cooldown enforced');
   } finally {
     server.close();
     await teardownTestDb();

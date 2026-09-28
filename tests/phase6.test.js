@@ -157,6 +157,24 @@ async function runTests() {
       throw new Error(`Owner could not read their own order: ${JSON.stringify(ownerView)}`);
     }
 
+    // Once a verified shopperId is present it is decisive: a matching phone may
+    // not override an ID mismatch (email verification proves a contact pair,
+    // not ownership of every order carrying that phone).
+    const mismatchedShopperCtx = buildToolContext({
+      sellerId: seller.id,
+      customerPhone,
+      shopperId: '507f1f77bcf86cd799439011',
+    });
+    let mismatchedShopperBlocked = false;
+    try {
+      await getOrderTool.execute(seller.id, { orderId: targetOrderId }, mismatchedShopperCtx);
+    } catch (err) {
+      mismatchedShopperBlocked = /not found/i.test(err.message);
+    }
+    if (!mismatchedShopperBlocked) {
+      throw new Error('SECURITY: phone fallback bypassed a verified shopperId mismatch');
+    }
+
     const strangerCtx = buildToolContext({ sellerId: seller.id, customerPhone: '+2348011112222' });
     let strangerBlocked = false;
     try {

@@ -2,8 +2,8 @@
  * Buyer (Shopper) Self-Service Data Service
  *
  * Read paths a verified buyer is allowed to use for their OWN data. Ownership
- * is always derived from the session (shopperId + verified phone), never from
- * anything supplied in the request.
+ * is always derived from the session's shopperId, never from a phone/email
+ * supplied in the request.
  */
 
 const mongoose = require('mongoose');
@@ -14,13 +14,11 @@ const Customer = require('../../models/Customer');
 const HISTORY_LIMIT = 100;
 
 /**
- * Orders belong to a shopper if they were placed with a verified session, or if
- * they carry the phone number the shopper has verified (guest checkouts).
+ * Guest orders are backfilled with shopperId only after their exact verified
+ * phone+email pair matches. Reads therefore never need an unsafe phone fallback.
  */
 function ownershipFilter(shopper) {
-  return {
-    $or: [{ shopperId: shopper._id.toString() }, { customerPhone: shopper.phone }],
-  };
+  return { shopperId: shopper._id.toString() };
 }
 
 function presentOrder(order, storesBySeller) {
@@ -49,9 +47,7 @@ const shopperService = {
    * Buyer profile plus the stores they have bought from.
    */
   async getProfile(shopper) {
-    const customers = await Customer.find({
-      $or: [{ shopperId: shopper._id.toString() }, { phone: shopper.phone }],
-    });
+    const customers = await Customer.find({ shopperId: shopper._id.toString() });
 
     const stores = await loadStores([...new Set(customers.map((c) => c.sellerId))]);
 

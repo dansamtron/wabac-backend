@@ -52,8 +52,11 @@ function ownsOrder(order, context = {}) {
   if (!order) return false;
   if (context.trusted) return true;
 
-  if (context.shopperId && order.shopperId && String(order.shopperId) === String(context.shopperId)) {
-    return true;
+  // A verified shopperId is decisive. Never fall back to phone after an ID
+  // mismatch: email-verified shoppers prove an exact contact pair, not global
+  // ownership of every row that happens to carry the same phone number.
+  if (context.shopperId) {
+    return Boolean(order.shopperId) && String(order.shopperId) === String(context.shopperId);
   }
 
   const contextPhone = comparablePhone(context.customerPhone);

@@ -11,7 +11,7 @@ const { getEffectivePrice } = require('../../models/Product');
 const customerService = require('../customers/customerService');
 const productService = require('../products/productService');
 const businessService = require('../sellers/businessService');
-const { sanitize, escapeRegex, normalizePhone } = require('../../utils/validators');
+const { sanitize, escapeRegex, normalizePhone, isEmail } = require('../../utils/validators');
 const logger = require('../../utils/logger');
 
 function getNotificationService() {
@@ -62,6 +62,8 @@ const orderService = {
 
     const customerName = sanitize(payload.customer.name, 100);
     const customerPhone = normalizePhone(payload.customer.phone) || payload.customer.phone.trim();
+    const rawEmail = String(payload.customer.email || '').trim().toLowerCase();
+    const customerEmail = isEmail(rawEmail) ? rawEmail : '';
     const customerAddress = sanitize(payload.deliveryAddress || payload.customer.address || '', 300);
 
     // Upsert customer profile under seller
@@ -70,7 +72,7 @@ const orderService = {
       phone: customerPhone,
       whatsappId: payload.customer.whatsappId || customerPhone,
       address: customerAddress,
-      email: payload.customer.email,
+      email: customerEmail,
       shopperId: payload.shopperId || null,
     });
 
@@ -160,6 +162,7 @@ const orderService = {
       customerId: customer.id,
       customerName,
       customerPhone,
+      customerEmail,
       customerWhatsappId: customer.whatsappId || customerPhone,
       source,
       sourceChannel: '',

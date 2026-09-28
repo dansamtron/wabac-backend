@@ -83,6 +83,19 @@ const orderSchema = new mongoose.Schema(
       required: true,
       trim: true,
     },
+    // Snapshot used for Brevo receipts and status updates. Keeping it on the
+    // order means later customer-profile edits do not reroute old purchases.
+    customerEmail: {
+      type: String,
+      default: '',
+      trim: true,
+      lowercase: true,
+      maxlength: [254, 'Customer email cannot exceed 254 characters'],
+      validate: {
+        validator: (value) => !value || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value),
+        message: 'Customer email must be valid',
+      },
+    },
     customerWhatsappId: {
       type: String,
       trim: true,

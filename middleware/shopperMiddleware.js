@@ -51,7 +51,7 @@ async function protectShopper(req, res, next) {
   if (!token) {
     return res.status(401).json({
       success: false,
-      message: 'Not authorized: verify your phone number to continue',
+      message: 'Not authorized: verify your contact details to continue',
     });
   }
 
@@ -66,7 +66,7 @@ async function protectShopper(req, res, next) {
       success: false,
       message:
         error.name === 'TokenExpiredError'
-          ? 'Session expired. Please verify your phone number again.'
+          ? 'Session expired. Please verify your contact details again.'
           : 'Invalid buyer session',
     });
   }

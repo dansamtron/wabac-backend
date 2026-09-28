@@ -20,7 +20,7 @@ const { getEffectivePrice } = require('../../models/Product');
 const Customer = require('../../models/Customer');
 const customerService = require('../customers/customerService');
 const productService = require('../products/productService');
-const { sanitize, normalizePhone } = require('../../utils/validators');
+const { sanitize, normalizePhone, isEmail } = require('../../utils/validators');
 const logger = require('../../utils/logger');
 
 const ORDER_STATUSES = ['Pending', 'Confirmed', 'Processing', 'Shipped', 'Delivered', 'Cancelled'];
@@ -76,10 +76,13 @@ function cleanCustomer(payload = {}) {
 
   if (!name || !phone) throw httpError('Customer name and phone number are required');
 
+  const rawEmail = sanitize(payload.email || '', 254).toLowerCase();
+  if (rawEmail && !isEmail(rawEmail)) throw httpError('Customer email must be valid');
+
   return {
     name,
     phone,
-    email: sanitize(payload.email || '', 254).toLowerCase(),
+    email: rawEmail,
     address: sanitize(payload.address || '', 300),
   };
 }
@@ -276,6 +279,7 @@ const manualOrderService = {
         shopperId: customer.shopperId || null,
         customerName: customerInput.name,
         customerPhone: customerInput.phone,
+        customerEmail: customerInput.email,
         customerWhatsappId: customer.whatsappId || customerInput.phone,
         source: 'manual',
         sourceChannel,
@@ -333,7 +337,7 @@ const manualOrderService = {
       ? cleanCustomer({
           name: payload.customer.name ?? order.customerName,
           phone: payload.customer.phone ?? order.customerPhone,
-          email: payload.customer.email || '',
+          email: payload.customer.email ?? order.customerEmail,
           address:
             payload.deliveryAddress !== undefined
               ? payload.deliveryAddress
@@ -342,7 +346,7 @@ const manualOrderService = {
       : {
           name: order.customerName,
           phone: order.customerPhone,
-          email: '',
+          email: order.customerEmail || '',
           address:
             payload.deliveryAddress !== undefined
               ? sanitize(payload.deliveryAddress, 300)
@@ -374,6 +378,7 @@ const manualOrderService = {
       shopperId: customer.shopperId || null,
       customerName: customerInput.name,
       customerPhone: customerInput.phone,
+      customerEmail: customerInput.email,
       customerWhatsappId: customerInput.phone,
       deliveryAddress: customerInput.address,
       items,

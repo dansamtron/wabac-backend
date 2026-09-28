@@ -66,6 +66,7 @@ async function createOrder(req, res, next) {
       payload.shopperId = req.shopperId;
       payload.customer = { ...(payload.customer || {}), phone: req.shopper.phone };
       if (!payload.customer.name) payload.customer.name = req.shopper.name || 'Valued Customer';
+      if (req.shopper.email) payload.customer.email = req.shopper.email;
     }
 
     const order = await orderService.create(sellerId, payload, idempotencyKey);

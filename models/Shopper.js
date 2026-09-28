@@ -1,10 +1,11 @@
 /**
  * Shopper (Buyer) Mongoose Model
  *
- * Global, phone-verified buyer identity. Deliberately credential-free:
- * a shopper proves who they are with a WhatsApp magic link or a one-time code,
- * never with a password. One phone number maps to exactly one Shopper, which in
- * turn links to the per-seller `Customer` records created at checkout.
+ * Global, phone-keyed buyer identity. Deliberately credential-free: a shopper
+ * proves access through a Brevo email magic link or one-time code (and later an
+ * already-linked Telegram chat), never with a password. Email is the unique
+ * identity for storefront verification; phone remains a contact attribute.
+ * The Shopper then links to explicitly claimed per-seller Customer records.
  */
 
 const mongoose = require('mongoose');
@@ -14,8 +15,8 @@ const shopperSchema = new mongoose.Schema(
     phone: {
       type: String,
       required: [true, 'Phone number is required'],
-      unique: true, // `unique` already builds the index
       trim: true,
+      index: true,
     },
     name: {
       type: String,
@@ -25,9 +26,15 @@ const shopperSchema = new mongoose.Schema(
     },
     email: {
       type: String,
-      default: '',
       trim: true,
       lowercase: true,
+      unique: true,
+      sparse: true,
+      maxlength: [254, 'Email cannot exceed 254 characters'],
+      validate: {
+        validator: (value) => !value || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value),
+        message: 'Email must be valid',
+      },
     },
     verifiedAt: {
       type: Date,

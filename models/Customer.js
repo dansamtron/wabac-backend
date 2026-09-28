@@ -40,6 +40,11 @@ const customerSchema = new mongoose.Schema(
       trim: true,
       lowercase: true,
       default: '',
+      maxlength: [254, 'Email cannot exceed 254 characters'],
+      validate: {
+        validator: (value) => !value || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value),
+        message: 'Email must be valid',
+      },
     },
     addresses: {
       type: [String],
@@ -81,6 +86,7 @@ const customerSchema = new mongoose.Schema(
 
 // Compound index for fast lookup of a customer under a specific seller
 customerSchema.index({ sellerId: 1, phone: 1 });
+customerSchema.index({ sellerId: 1, phone: 1, email: 1 }, { unique: true });
 customerSchema.index({ sellerId: 1, lastOrderAt: -1 });
 
 const Customer = mongoose.model('Customer', customerSchema);

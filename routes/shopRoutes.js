@@ -2,7 +2,7 @@
  * Buyer (Shopper) Routes
  *
  * Progressive identity endpoints. Nothing here requires a password or a signup
- * form: a buyer becomes verified through a WhatsApp magic link or a one-time
+ * form: a buyer becomes verified through a Brevo email magic link or one-time
  * code, and only then can read their own data.
  */
 
@@ -14,7 +14,7 @@ const { protectShopper } = require('../middleware/shopperMiddleware');
 const { createRateLimiter } = require('../middleware/rateLimiter');
 
 // Code requests are the expensive, abusable path: throttle hard per IP.
-// A per-phone cooldown is enforced inside shopperAuthService as well.
+// A per-phone+email cooldown is enforced inside shopperAuthService as well.
 const otpRequestLimiter = createRateLimiter({
   windowMs: 60 * 60 * 1000,
   max: 10,

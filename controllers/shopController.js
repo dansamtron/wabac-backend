@@ -1,6 +1,6 @@
 /**
  * Buyer (Shopper) Controller
- * Phone-verified buyer sessions, profile, and cross-store order history
+ * Email-verified buyer sessions, profile, and cross-store order history
  */
 
 const shopperAuthService = require('../services/shop/shopperAuthService');
@@ -19,13 +19,13 @@ function sessionCookieOptions() {
 const shopController = {
   /**
    * @route   POST /api/shop/auth/request-otp
-   * @desc    Send a one-time verification code over WhatsApp
+   * @desc    Send a one-time verification code through Brevo email
    * @access  Public (rate limited)
    */
   async requestOtp(req, res, next) {
     try {
-      const { phone, sellerId } = req.body;
-      const result = await shopperAuthService.requestOtp({ phone, sellerId });
+      const { phone, sellerId, email } = req.body;
+      const result = await shopperAuthService.requestOtp({ phone, sellerId, email });
       res.status(200).json(result);
     } catch (error) {
       next(error);
@@ -39,8 +39,8 @@ const shopController = {
    */
   async verifyOtp(req, res, next) {
     try {
-      const { phone, code } = req.body;
-      const result = await shopperAuthService.verifyOtp({ phone, code });
+      const { phone, email, code } = req.body;
+      const result = await shopperAuthService.verifyOtp({ phone, email, code });
 
       res.cookie(SHOPPER_COOKIE, result.token, sessionCookieOptions());
       res.status(200).json(result);
@@ -54,8 +54,9 @@ const shopController = {
    * @desc    Redeem a single-use tracking link token for a buyer session
    * @access  Public (rate limited)
    *
-   * Deliberately POST, not GET: link previews (WhatsApp fetches every URL it
-   * renders) would otherwise burn the single-use token before the buyer taps it.
+   * Deliberately POST, not GET: email security scanners and link previews often
+   * fetch URLs automatically and would otherwise burn the token before a buyer
+   * taps it.
    */
   async consumeMagicLink(req, res, next) {
     try {
@@ -95,7 +96,7 @@ const shopController = {
 
   /**
    * @route   PATCH /api/shop/me
-   * @desc    Update buyer display name / email
+   * @desc    Update display name (email changes require re-verification)
    * @access  Buyer session
    */
   async updateMe(req, res, next) {

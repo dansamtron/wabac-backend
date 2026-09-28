@@ -64,8 +64,8 @@ The system architecture is implemented across modular phases following domain-dr
 - **Payout & Settlement Engine**: Bank account verification (`POST /api/payouts/resolve-account`), available balance calculation, withdrawal requests (`POST /api/payouts/request`), and admin disbursement workflow (`GET /api/admin/payouts`, `PATCH /api/admin/payouts/:id/process`).
 - **CSV Data Exports**: Downloadable CSV reports for order history (`GET /api/analytics/export/orders`) and financial revenue ledgers (`GET /api/analytics/export/revenue`).
 
-### Phase 10: Automated WhatsApp Notifications, Marketing Campaigns & CRM Automation
-- **Event-Driven Transactional Notifications**: Automated WhatsApp messages sent on Order Creation, Order Status Updates (`Shipped`, `Delivered`), and Payment Receipts.
+### Phase 10: Transactional Notifications, Marketing Campaigns & CRM Automation
+- **Event-Driven Transactional Notifications**: Order confirmations, payment receipts, and fulfillment updates are provider-neutral events; storefront buyers receive them through Brevo email.
 - **Audience Segmentation**: Filter customers into actionable segments (`ALL`, `VIP`, `INACTIVE`, `NEW`) with live preview (`GET /api/campaigns/segments/:segment/preview`).
 - **Broadcast Marketing Campaigns**: Create and dispatch personalized broadcast messages with variable interpolation (`{{name}}`, `{{store}}`) (`POST /api/campaigns`, `POST /api/campaigns/:id/send`).
 - **Abandoned Order Recovery Engine**: Detects unpaid orders and automatically dispatches personalized WhatsApp checkout reminders with direct payment links (`POST /api/campaigns/abandoned-orders/trigger`).
@@ -92,6 +92,13 @@ The system architecture is implemented across modular phases following domain-dr
 - **Offline Payment Guard**: Sellers may record cash, bank transfer, POS, or other payment only for `source=manual` rows. Storefront/bot orders become Paid only through payment verification.
 - **Operations**: Per-seller references (`#00001`), expected delivery dates, notes, optional inventory deduction, source-split dashboard totals, source-aware CSV exports, and corrections with stock reconciliation.
 - **No-API Sharing**: `GET /api/orders/:id/share` returns copyable summary text and a pre-filled `wa.me` deep link. It never calls Meta, sends in the background, or requires an access token.
+
+### Phase 15: Provider-Neutral Notifications + Brevo
+- **Transport Boundary**: Commerce services emit `order.created`, `payment.received`, `order.status_changed`, and `buyer.otp`; `notificationDispatcher` routes them without importing provider-specific code.
+- **Brevo Email**: Storefront confirmations, magic tracking links, payment receipts, shipping updates, and one-time login codes use the Brevo transactional email API.
+- **Safe OTP Routing**: A request may only select an email already associated with that phone through checkout or a verified shopper profile. Supplying an arbitrary email cannot redirect another buyer's code.
+- **Failure Isolation**: Provider failures are logged and return a normalized delivery result; they never roll back an order or verified payment already stored in MongoDB.
+- **Telegram-Ready**: The dispatcher supports runtime transport registration. Telegram can be added in Phase C without changing the order, payment, or shopper-auth services.
 
 ---
 
@@ -232,6 +239,22 @@ npm run check-indexes
 Loads every model and fails if two definitions declare the same key pattern — the cause of
 Mongoose's `Duplicate schema index on {...}` startup warning. No database connection needed.
 
+### Brevo transactional email
+
+1. Verify a sender address or domain in Brevo.
+2. Create a v3 API key under Brevo SMTP & API settings.
+3. Configure the backend (never expose the API key to the browser):
+
+```bash
+BREVO_API_KEY=xkeysib-...
+BREVO_SENDER_EMAIL=orders@yourdomain.com
+BREVO_SENDER_NAME="Your Platform"
+```
+
+`BREVO_API_URL` normally stays at `https://api.brevo.com/v3/smtp/email`; the override exists
+for local integration tests. Missing/failed email delivery is logged but never reverses a
+stored order or verified payment.
+
 ---
 
 ## 🛒 Buyer Identity (Progressive)
@@ -244,23 +267,23 @@ saved addresses). Two ways in, both friction-light:
 | Tier | How they got there | What it unlocks |
 | :--- | :--- | :--- |
 | **0 — Anonymous** | `deviceId` in the frontend | Browse, local cart, guest checkout |
-| **1 — Phone claimed** | Typed at checkout | Order placed; confirmation sent to that number |
-| **2 — Phone verified** | Tapped the tracking link in their WhatsApp confirmation, or entered a one-time code | Cross-store order history, saved addresses, profile |
+| **1 — Contact claimed** | Phone and email typed at checkout | Order placed; confirmation sent to the supplied email |
+| **2 — Contact verified** | Tapped the tracking link in their Brevo order email, or entered the emailed one-time code | Matching cross-store order history, saved addresses, profile |
 
-Verifying a number creates the global `Shopper` record and **claims** every guest order
-and per-seller `Customer` row carrying that phone, so a buyer's first sign-in already
-shows their full purchase history.
+Verifying creates the global `Shopper` record and claims guest `Order`/`Customer` rows
+carrying the exact proven phone-and-email pair. A shared or forged phone number alone
+never grants access to another buyer's history.
 
 ### Buyer endpoints
 
 | Method | Endpoint | Description | Access |
 | :--- | :--- | :--- | :--- |
-| `POST` | `/api/shop/auth/request-otp` | Send a 6 digit code over WhatsApp (10 min TTL) | Public, rate limited |
-| `POST` | `/api/shop/auth/verify-otp` | Exchange code for a buyer session | Public, rate limited |
+| `POST` | `/api/shop/auth/request-otp` | Email a 6 digit code for a known phone+email pair (10 min TTL) | Public, rate limited |
+| `POST` | `/api/shop/auth/verify-otp` | Exchange phone, email, and code for a buyer session | Public, rate limited |
 | `POST` | `/api/shop/auth/magic` | Redeem a single-use tracking-link token | Public, rate limited |
 | `POST` | `/api/shop/auth/logout` | Clear the buyer session cookie | Public |
 | `GET` | `/api/shop/me` | Profile, stores shopped, saved addresses | Buyer session |
-| `PATCH` | `/api/shop/me` | Update display name / email | Buyer session |
+| `PATCH` | `/api/shop/me` | Update display name; email changes require verification | Buyer session |
 | `GET` | `/api/shop/me/orders` | Cross-store history (`?sellerId=` to filter) | Buyer session |
 | `GET` | `/api/shop/me/orders/:id` | Single order, ownership enforced | Buyer session |
 
@@ -273,12 +296,14 @@ shows their full purchase history.
 - **Separate cookie.** Buyer sessions use `shop_token`, so a merchant and a buyer can be
   signed in in the same browser.
 - **Checkout binding.** With a verified session, the order is recorded against the
-  *verified* phone; `shopperId` in a request body is always discarded.
-- **Ownership on read.** History is filtered by `shopperId` **or** verified phone; another
-  buyer's order returns `404`.
+  session's verified phone and email; `shopperId` in a request body is always discarded.
+- **Ownership on read.** History is filtered strictly by backfilled `shopperId`; there is
+  no phone-only fallback. Another buyer's order returns `404`.
 - **Magic links are single use**, expire after 7 days, and are redeemed over `POST` so
-  WhatsApp link previews cannot burn them. Codes expire in 10 minutes, allow 5 attempts,
-  and are rate limited per phone (60s cooldown) and per IP (10/hour).
+  email security scanners/link previews cannot burn them. Codes expire in 10 minutes,
+  allow 5 attempts, and are rate limited per phone+email pair (60s cooldown) and per IP (10/hour).
+- **OTP email cannot be redirected.** The destination must already be associated with the
+  phone through checkout or a verified profile; an arbitrary email in the request is ignored.
 - Only hashes of codes and link tokens are stored; documents self-destruct via a TTL index.
 - **AI agent tools are scoped to the conversation counterparty.** Tool executors receive
   a context (`customerPhone` / `shopperId`) in addition to `sellerId`, so `getOrder` and
@@ -288,7 +313,7 @@ shows their full purchase history.
   exist. A seller authenticated against their own tenant (dashboard / agent test console)
   keeps tenant-wide access.
 
-### Local testing without a WhatsApp Business account
+### Local testing without a Brevo account
 
 ```bash
 SHOP_OTP_DEBUG=true npm run dev     # returns the code in the API response (never in production)
@@ -298,7 +323,7 @@ SHOP_OTP_DEBUG=true npm run dev     # returns the code in the API response (neve
 
 ## 🧪 Testing
 
-The repository contains automated integration test suites across all 12 phases.
+The repository contains automated integration test suites across all implemented phases.
 
 The suites exercise the real persistence layer, so a **running MongoDB is required**. Point
 `MONGO_URI_TEST` at a throwaway database (default `mongodb://127.0.0.1:27017/wabac_test`) —
@@ -327,4 +352,7 @@ node tests/phase9.test.js
 node tests/phase10.test.js
 node tests/phase11.test.js
 node tests/phase12.test.js
+node tests/phase13.test.js
+node tests/phase14.test.js
+node tests/phase15.test.js
 ```
