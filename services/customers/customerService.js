@@ -38,7 +38,6 @@ const customerService = {
       filter.$or = [
         { name: { $regex: q, $options: 'i' } },
         { phone: { $regex: q, $options: 'i' } },
-        { whatsappId: { $regex: q, $options: 'i' } },
       ];
     }
 
@@ -79,7 +78,6 @@ const customerService = {
   async create(sellerId, payload) {
     const name = sanitize(payload.name, 100);
     const phone = normalizePhone(payload.phone) || String(payload.phone || '').trim();
-    const whatsappId = payload.whatsappId ? normalizePhone(payload.whatsappId) : phone;
     const address = payload.address ? sanitize(payload.address, 300) : '';
 
     const customer = await Customer.create({
@@ -87,7 +85,6 @@ const customerService = {
       shopperId: payload.shopperId || null,
       name,
       phone,
-      whatsappId,
       email: normalizeEmail(payload.email),
       addresses: address ? [address] : [],
       totalOrders: 0,

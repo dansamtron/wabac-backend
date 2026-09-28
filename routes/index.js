@@ -15,8 +15,6 @@ const sellerRoutes = require('./sellerRoutes');
 const productRoutes = require('./productRoutes');
 const orderRoutes = require('./orderRoutes');
 const customerRoutes = require('./customerRoutes');
-const whatsappRoutes = require('./whatsappRoutes');
-const whatsappWebhook = require('../webhooks/whatsappWebhook');
 const paymentRoutes = require('./paymentRoutes');
 const platformRoutes = require('./platformRoutes');
 const aiRoutes = require('./aiRoutes');
@@ -44,9 +42,6 @@ router.use('/api/business', sellerRoutes); // Direct mount for businessService c
 router.use('/api/products', productRoutes);
 router.use('/api/orders', orderRoutes);
 router.use('/api/customers', customerRoutes);
-router.use('/api/whatsapp', whatsappRoutes);
-router.use('/webhooks/whatsapp', whatsappWebhook);
-router.use('/api/webhooks/whatsapp', whatsappWebhook);
 router.use('/api/payments', paymentRoutes);
 router.use('/api/ai', aiRoutes);
 router.use('/api/analytics', analyticsRoutes);

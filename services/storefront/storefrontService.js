@@ -68,8 +68,8 @@ const storefrontService = {
       freeDeliveryThreshold: biz.freeDeliveryThreshold !== undefined ? biz.freeDeliveryThreshold : 25000,
       paymentMethod: biz.paymentMethod || 'both',
       paystackEnabled: biz.paystackEnabled !== false,
-      whatsappPhone: biz.whatsappPhone || '',
-      whatsappConnected: !!biz.whatsappConnected,
+      telegramBotUsername: biz.telegramBotUsername || '',
+      telegramBotUrl: biz.telegramBotUsername ? `https://t.me/${biz.telegramBotUsername}` : '',
       currency: 'NGN',
       createdAt: biz.createdAt,
     };
@@ -209,10 +209,10 @@ const storefrontService = {
     const store = await this.resolveStore(identifier);
     const storeUrl = `${baseUrl}/store/${store.slug || store.sellerId}`;
 
-    const title = `${store.name} | Official WhatsApp Store`;
+    const title = `${store.name} | Official Online Store`;
     const description =
       store.description ||
-      `Shop high quality products directly from ${store.name} on WhatsApp. Fast delivery across Nigeria and secure Paystack checkout.`;
+      `Shop products from ${store.name} online or through Telegram, with fast delivery across Nigeria and secure Paystack checkout.`;
     const image = store.logo || `${baseUrl}/static/images/default-storefront-og.png`;
 
     const openGraph = {
@@ -234,7 +234,7 @@ const storefrontService = {
       'name': store.name,
       'description': description,
       'url': storeUrl,
-      'telephone': store.whatsappPhone || store.phone,
+      'telephone': store.phone,
       'currenciesAccepted': 'NGN',
       'paymentAccepted': 'Cash, Credit Card, Bank Transfer',
       'priceRange': '₦₦',

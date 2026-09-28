@@ -1,5 +1,5 @@
 /**
- * WhatsApp Marketing Campaigns and Customer Re-engagement Controller
+ * Telegram Marketing Campaigns and Customer Re-engagement Controller
  * Handles marketing campaigns, audience segments, broadcasts, and automated recovery
  */
 
@@ -50,7 +50,7 @@ const campaignController = {
 
   /**
    * @route   POST /api/campaigns/:id/send
-   * @desc    Broadcast campaign to target customer segment via WhatsApp
+   * @desc    Broadcast campaign to target customer segment via Telegram
    * @access  Private (Seller)
    */
   async sendCampaign(req, res, next) {

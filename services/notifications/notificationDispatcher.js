@@ -3,8 +3,8 @@
  *
  * Commerce code emits rendered notifications to a named channel without
  * knowing anything about Brevo, Telegram's Bot API, or future providers.
- * Phase B registers email/Brevo; Phase C can register `telegram` without
- * changing order, payment, or buyer-auth services.
+ * Brevo email and Telegram are registered without coupling order, payment, or
+ * buyer-auth services to either provider.
  */
 
 const brevoEmailTransport = require('./transports/brevoEmailTransport');

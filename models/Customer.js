@@ -45,11 +45,6 @@ const customerSchema = new mongoose.Schema(
       type: [channelIdentitySchema],
       default: [],
     },
-    whatsappId: {
-      type: String,
-      trim: true,
-      index: true,
-    },
     email: {
       type: String,
       trim: true,

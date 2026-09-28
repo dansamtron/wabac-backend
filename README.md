@@ -1,6 +1,6 @@
-# WABAC (WhatsApp Business & AI Commerce) Backend
+# Telegram & Storefront AI Commerce Backend
 
-High-performance, multi-tenant conversational commerce backend powering WhatsApp-first merchant storefronts, automated AI sales agents, real-time catalog & inventory management, automated Paystack payment reconciliation, platform revenue administration, seller financial settlements, automated marketing campaigns, public storefronts & SEO discoverability, and production-grade security hardening.
+Multi-tenant commerce backend powering Telegram sales bots, guest-first public storefronts, an AI sales agent, catalog and inventory management, Paystack payment reconciliation, Brevo email, seller order operations, Telegram campaigns, platform revenue administration, and production-grade security controls.
 
 ---
 
@@ -17,7 +17,7 @@ The system architecture is implemented across modular phases following domain-dr
 ### Phase 2: Seller Authentication & Multi-Tenant Business Profiles
 - **Authentication**: JWT token generation (`/api/auth/register`, `/api/auth/login`, `/api/auth/me`).
 - **Multi-Tenant Protection**: RBAC and tenant authorization guards (`middleware/authMiddleware.js`).
-- **Business Profile**: Store profile, WhatsApp connection state, currency, and delivery policies (`/api/business`, `/api/sellers/:id`).
+- **Business Profile**: Store profile, public share contact, currency, and delivery policies (`/api/business`, `/api/sellers/:id`).
 
 ### Phase 3: Product Catalog & Variant Inventory Management
 - **Catalog Model**: Products with dynamic variants (size, color), SKU tracking, discount percentages, and Cloudinary media upload hooks (`/api/products`).
@@ -29,10 +29,10 @@ The system architecture is implemented across modular phases following domain-dr
 - **Idempotency**: Header-driven deduplication (`X-Idempotency-Key`) preventing double-charges and double-stock reservation.
 - **Customer CRM**: Automatic customer record updates and aggregate lifetime order metrics (`/api/customers`).
 
-### Phase 5: WhatsApp Cloud API Integration & Webhook Auto-Responder
-- **Meta Verification**: Hub challenge verification handshake (`GET /api/whatsapp/webhook`).
-- **Event Handling**: Inbound message receiver (`POST /api/whatsapp/incoming` & `POST /api/whatsapp/webhook`).
-- **Conversational Memory**: Customer message transcripts, conversation threading, and outbound message dispatch (`/api/whatsapp/messages`, `/api/whatsapp/send`).
+### Phase 5: Conversational Commerce Foundation
+- **Channel-Aware Memory**: Customer transcripts and conversation threads are transport-aware and tenant-scoped.
+- **Commerce Agent Foundation**: Product discovery, stock checks, delivery information, order creation, and payments use authoritative seller data.
+- **Removed Provider Surface**: The former Cloud messaging credentials, webhook, routes, controller, and sender were deleted. Only client-opened `wa.me` share links remain.
 
 ### Phase 6: AI Conversational Sales Agent (OpenAI & Function Tools)
 - **Zero-Hallucination Tools**:
@@ -68,14 +68,14 @@ The system architecture is implemented across modular phases following domain-dr
 - **Event-Driven Transactional Notifications**: Order confirmations, payment receipts, and fulfillment updates are provider-neutral events; storefront buyers receive them through Brevo email.
 - **Audience Segmentation**: Filter customers into actionable segments (`ALL`, `VIP`, `INACTIVE`, `NEW`) with live preview (`GET /api/campaigns/segments/:segment/preview`).
 - **Broadcast Marketing Campaigns**: Create and dispatch personalized broadcast messages with variable interpolation (`{{name}}`, `{{store}}`) (`POST /api/campaigns`, `POST /api/campaigns/:id/send`).
-- **Abandoned Order Recovery Engine**: Detects unpaid orders and automatically dispatches personalized WhatsApp checkout reminders with direct payment links (`POST /api/campaigns/abandoned-orders/trigger`).
-- **WhatsApp Opt-Out Compliance**: Immediate handling of `STOP` / `UNSUBSCRIBE` and `START` keywords to respect customer preferences and regulatory standards.
+- **Abandoned Order Recovery Engine**: Detects unpaid Telegram orders and dispatches personalized in-chat reminders (`POST /api/campaigns/abandoned-orders/trigger`).
+- **Telegram Opt-Out Compliance**: `/stop`, `STOP`, and `UNSUBSCRIBE` immediately remove a bot user from marketing; `/start` opts them back in.
 
 ### Phase 11: Public Storefront & Discoverability Endpoints (Catalog & SEO Support)
 - **Storefront Discovery & Slug Routing**: Public storefront access by unique `sellerId` or customized handle/slug (`GET /api/storefront/:identifier`).
 - **Public Catalog Browsing**: Category filtering, keyword search, price range filtering, in-stock badges, sorting (`price-asc`, `price-desc`, `newest`), and pagination (`GET /api/storefront/:identifier/products`).
 - **Public Product Detail & Recommendations**: Item attributes, variant selections, and related category products (`GET /api/storefront/:identifier/products/:productId`).
-- **Social Sharing & OpenGraph/Twitter Cards**: Dynamic metadata generator for WhatsApp link unfurling and social media cards (`GET /api/storefront/:identifier/seo`, `GET /api/storefront/:identifier/products/:productId/seo`).
+- **Social Sharing & OpenGraph/Twitter Cards**: Dynamic metadata for messaging-app link unfurling and social media cards (`GET /api/storefront/:identifier/seo`, `GET /api/storefront/:identifier/products/:productId/seo`).
 - **Schema.org JSON-LD Structured Data**: Search-engine rich snippets for Google Merchant (`Product`, `Offer`, `OnlineStore`).
 - **Search Engine Sitemaps**: Dynamic XML and JSON sitemaps indexer (`GET /api/storefront/:identifier/sitemap.xml`, `GET /api/storefront/:identifier/sitemap.json`).
 
@@ -142,12 +142,6 @@ The system architecture is implemented across modular phases following domain-dr
 | `GET` | `/api/telegram/conversations` | List Telegram customer threads | Bearer Token |
 | `GET` | `/api/telegram/messages` | List Telegram transcripts | Bearer Token |
 | `POST` | `/webhooks/telegram/:botId` | Receive Telegram updates | Secret Header |
-| `GET` | `/api/whatsapp/webhook` | Meta verification handshake (temporary Phase C compatibility) | Public |
-| `POST` | `/api/whatsapp/webhook` | Meta inbound webhook events | Public |
-| `POST` | `/api/whatsapp/incoming`| Process inbound WhatsApp message | Public / Webhook |
-| `POST` | `/api/whatsapp/send` | Dispatch outbound WhatsApp message | Bearer Token |
-| `GET` | `/api/whatsapp/conversations`| Get conversation threads | Bearer Token |
-| `GET` | `/api/whatsapp/messages`| Get customer message transcript | Bearer Token |
 | `POST` | `/api/ai/chat` | AI Conversational Sales Agent chat | Bearer Token |
 | `POST` | `/api/payments/initialize` | Initialize Paystack payment | Bearer Token |
 | `POST` | `/api/payments/verify/:reference` | Verify payment & reconcile order | Bearer Token |
@@ -179,6 +173,7 @@ The system architecture is implemented across modular phases following domain-dr
 | `GET` | `/api/admin/sellers` | Manage platform sellers | Admin Only |
 | `PATCH` | `/api/admin/sellers/:id/status`| Suspend or activate seller | Admin Only |
 | `GET` | `/api/admin/revenue` | Platform revenue & commission ledger| Admin Only |
+| `GET` | `/api/admin/telegram` | Telegram bot/message operations summary | Admin Only |
 | `GET` | `/api/admin/fee` | Get platform fee configuration | Admin Only |
 | `PATCH` | `/api/admin/fee` | Update platform commission rate | Admin Only |
 | `GET` | `/api/admin/payouts` | List all platform payout requests | Admin Only |
@@ -344,9 +339,9 @@ never grants access to another buyer's history.
   phone through checkout or a verified profile; an arbitrary email in the request is ignored.
 - Only hashes of codes and link tokens are stored; documents self-destruct via a TTL index.
 - **AI agent tools are scoped to the conversation counterparty.** Tool executors receive
-  a context (`customerPhone` / `shopperId`) in addition to `sellerId`, so `getOrder` and
-  `createPayment` only touch orders belonging to the person in that chat, and `createOrder`
-  files the order under the number we are actually talking to. Unknown ownership answers
+  verified shopper identity or the exact `(channel, bot, channelUserId)` tuple in addition
+  to `sellerId`. `getOrder` and `createPayment` only touch orders belonging to that identity,
+  while `createOrder` records immutable provenance. Unknown ownership answers
   "not found" rather than "forbidden", so the agent cannot be used to probe which order IDs
   exist. A seller authenticated against their own tenant (dashboard / agent test console)
   keeps tenant-wide access.
@@ -363,9 +358,10 @@ SHOP_OTP_DEBUG=true npm run dev     # returns the code in the API response (neve
 
 The repository contains automated integration test suites across all implemented phases.
 
-The suites exercise the real persistence layer, so a **running MongoDB is required**. Point
-`MONGO_URI_TEST` at a throwaway database (default `mongodb://127.0.0.1:27017/wabac_test`) —
-every suite wipes it before it runs and provisions its own admin account:
+Integration suites exercise the real persistence layer, so a **running MongoDB is required**
+for phases 1–15. Point `MONGO_URI_TEST` at a throwaway database (default
+`mongodb://127.0.0.1:27017/wabac_test`) — each database-backed suite wipes it before use.
+Phases 16–17 are offline provider/security contract suites:
 
 ```bash
 export MONGO_URI_TEST=mongodb://127.0.0.1:27017/wabac_test
@@ -393,4 +389,6 @@ node tests/phase12.test.js
 node tests/phase13.test.js
 node tests/phase14.test.js
 node tests/phase15.test.js
+node tests/phase16.test.js   # Telegram adapter contracts; no MongoDB required
+node tests/phase17.test.js   # removed-provider/share-link contracts; no MongoDB required
 ```

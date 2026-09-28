@@ -96,7 +96,6 @@ const orderService = {
       customer = await customerService.upsert(sellerId, {
         name: customerName,
         phone: customerPhone,
-        whatsappId: payload.customer.whatsappId || customerPhone,
         address: customerAddress,
         email: customerEmail,
         shopperId: payload.shopperId || null,
@@ -189,7 +188,6 @@ const orderService = {
       customerName,
       customerPhone,
       customerEmail,
-      customerWhatsappId: customer.whatsappId || customerPhone,
       source,
       sourceChannel: '',
       channel: options.channel || (source === 'telegram' ? 'telegram' : 'storefront'),

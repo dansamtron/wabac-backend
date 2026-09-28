@@ -52,7 +52,7 @@ async function getOrderById(req, res, next) {
  */
 async function createOrder(req, res, next) {
   try {
-    // If authenticated, use req.sellerId; otherwise allow payload.sellerId (e.g. from public checkout / WhatsApp)
+    // If authenticated, use req.sellerId; otherwise allow payload.sellerId for public storefront checkout.
     const sellerId = req.sellerId || req.body.sellerId;
     const idempotencyKey = req.headers['x-idempotency-key'] || req.body.idempotencyKey;
 

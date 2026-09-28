@@ -1,8 +1,6 @@
 /**
  * Campaign Service
- * Telegram-first broadcasts to customers who have initiated a seller's bot.
- * WhatsApp remains an explicit compatibility channel until Phase D removes the
- * Cloud API implementation and its legacy tests.
+ * Telegram broadcasts to customers who have initiated a seller's bot.
  */
 
 const mongoose = require('mongoose');
@@ -74,23 +72,6 @@ async function resolveTelegramRecipients(sellerId, segment, customCustomerIds = 
   return [...unique.values()];
 }
 
-async function resolveLegacyWhatsAppRecipients(sellerId, segment, customCustomerIds = []) {
-  const query = segmentQuery(sellerId, segment);
-  query.phone = { $ne: '' };
-  if (segment === 'CUSTOM') {
-    if (!customCustomerIds.length) return [];
-    query._id = { $in: customCustomerIds };
-  }
-  const customers = await Customer.find(query);
-  return customers.map((customer) => ({
-    customerId: customer._id.toString(),
-    channel: 'whatsapp',
-    phone: customer.phone,
-    name: customer.name,
-    status: 'pending',
-  }));
-}
-
 const campaignService = {
   async create(sellerId, payload = {}) {
     if (!sellerId) throw new Error('Seller ID is required');
@@ -105,7 +86,7 @@ const campaignService = {
       throw error;
     }
     const channel = String(payload.channel || 'telegram').toLowerCase();
-    if (!['telegram', 'whatsapp'].includes(channel)) {
+    if (channel !== 'telegram') {
       const err = new Error('Campaign channel must be telegram');
       err.statusCode = 400;
       throw err;
@@ -118,9 +99,7 @@ const campaignService = {
       throw error;
     }
     const customIds = payload.customerIds || payload.customCustomerIds || [];
-    const recipients = channel === 'telegram'
-      ? await resolveTelegramRecipients(sellerId, segment, customIds)
-      : await resolveLegacyWhatsAppRecipients(sellerId, segment, customIds);
+    const recipients = await resolveTelegramRecipients(sellerId, segment, customIds);
 
     const campaign = await Campaign.create({
       sellerId,
@@ -200,25 +179,16 @@ const campaignService = {
     for (const recipient of campaign.recipients) {
       try {
         const personalizedMessage = interpolateMessage(campaign.message, recipient, business);
-        if (campaign.channel === 'telegram') {
-          await telegramService.sendOutbound({
-            sellerId,
-            to: recipient.channelUserId,
-            body: personalizedMessage,
-            customerPhone: recipient.phone,
-            channelUsername: recipient.handle,
-            customerName: recipient.name,
-            deterministic: true,
-          });
-          await wait(delayMs); // ~25 messages/sec by default, below Telegram's global limit.
-        } else {
-          const whatsappService = require('../whatsapp/whatsappService');
-          await whatsappService.sendOutbound({
-            sellerId,
-            to: recipient.phone,
-            body: personalizedMessage,
-          });
-        }
+        await telegramService.sendOutbound({
+          sellerId,
+          to: recipient.channelUserId,
+          body: personalizedMessage,
+          customerPhone: recipient.phone,
+          channelUsername: recipient.handle,
+          customerName: recipient.name,
+          deterministic: true,
+        });
+        await wait(delayMs); // ~25 messages/sec by default, below Telegram's global limit.
         recipient.status = 'sent';
         recipient.sentAt = new Date();
         recipient.error = '';

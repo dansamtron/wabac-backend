@@ -31,11 +31,9 @@ const orderItemSchema = new mongoose.Schema(
  * seller after selling somewhere we have no integration with, so the seller is
  * the authority on price and payment. That distinction drives the guards in
  * manualOrderService and the payment-verification service.
- *
- * 'whatsapp' is retained only until the Cloud API integration is removed.
  */
-const ORDER_SOURCES = ['storefront', 'telegram', 'whatsapp', 'manual'];
-const AUTOMATIC_SOURCES = ['storefront', 'telegram', 'whatsapp'];
+const ORDER_SOURCES = ['storefront', 'telegram', 'manual'];
+const AUTOMATIC_SOURCES = ['storefront', 'telegram'];
 
 /** Where a manually logged order was actually taken. Display/reporting only. */
 const MANUAL_CHANNELS = [
@@ -68,7 +66,7 @@ const orderSchema = new mongoose.Schema(
       index: true,
     },
     // Set when the buyer checked out with a verified shopper session, or
-    // backfilled the first time they verify their phone number.
+    // claimed the exact phone+email pair through buyer verification.
     shopperId: {
       type: String,
       default: null,
@@ -95,10 +93,6 @@ const orderSchema = new mongoose.Schema(
         validator: (value) => !value || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value),
         message: 'Customer email must be valid',
       },
-    },
-    customerWhatsappId: {
-      type: String,
-      trim: true,
     },
     // --- Provenance -------------------------------------------------------
     source: {

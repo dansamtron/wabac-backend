@@ -14,21 +14,19 @@ const conversationSchema = new mongoose.Schema(
     },
     channel: {
       type: String,
-      enum: ['whatsapp', 'telegram'],
-      default: 'whatsapp',
+      enum: ['telegram'],
+      default: 'telegram',
       required: true,
       index: true,
     },
-    // Seller-side account on the transport (WhatsApp business phone / Telegram bot id)
+    // Seller-side Telegram bot id and customer-side Telegram user id.
     channelAccountId: { type: String, default: '', trim: true },
-    // Customer-side transport identity. For WhatsApp this is the normalized phone.
     channelUserId: { type: String, required: true, trim: true },
     channelUsername: { type: String, default: '', trim: true },
     customerName: { type: String, default: '', trim: true },
 
-    // Legacy/contact fields retained during the reversible Phase C cutover.
+    // Phone is progressively attached after Telegram contact sharing.
     customerPhone: { type: String, default: '', index: true },
-    businessPhone: { type: String, default: '' },
 
     lastMessage: { type: String, default: '' },
     lastMessageAt: { type: Date, default: Date.now, index: true },

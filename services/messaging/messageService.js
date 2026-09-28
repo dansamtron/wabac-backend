@@ -6,8 +6,8 @@ const Message = require('../../models/Message');
 const Conversation = require('../../models/Conversation');
 
 function identity(input = {}) {
-  const channel = input.channel || 'whatsapp';
-  const channelUserId = String(input.channelUserId || input.customerPhone || '').trim();
+  const channel = input.channel || 'telegram';
+  const channelUserId = String(input.channelUserId || '').trim();
   if (!input.sellerId) {
     const err = new Error('Seller ID is required');
     err.statusCode = 400;
@@ -40,7 +40,7 @@ const messageService = {
     const data = {
       sellerId: input.sellerId,
       channel,
-      channelAccountId: String(input.channelAccountId || input.businessPhone || ''),
+      channelAccountId: String(input.channelAccountId || ''),
       channelUserId,
       channelUsername: String(input.channelUsername || ''),
       customerName: String(input.customerName || ''),
@@ -50,7 +50,6 @@ const messageService = {
       providerUpdateId: input.providerUpdateId
         ? String(input.providerUpdateId)
         : undefined,
-      businessPhone: input.businessPhone || '',
       customerPhone: input.customerPhone || '',
       direction: input.direction,
       body: input.body,
@@ -79,7 +78,6 @@ const messageService = {
           channelUsername: data.channelUsername,
           customerName: data.customerName,
           customerPhone: data.customerPhone,
-          businessPhone: data.businessPhone,
           lastMessage: input.body,
           lastMessageAt: timestamp,
         },

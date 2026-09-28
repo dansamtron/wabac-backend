@@ -121,7 +121,7 @@ const adminController = {
           customersCount: sCustomers.length,
           messagesCount: sMessages.length,
           revenue,
-          whatsappConnected: !!(business && business.whatsappConnected),
+          telegramConnected: !!(business && business.telegramConnected),
         };
       });
 
@@ -274,24 +274,24 @@ const adminController = {
   },
 
   /**
-   * @route   GET /api/admin/whatsapp
-   * @desc    Platform-wide WhatsApp messaging and AI interaction metrics
+   * @route   GET /api/admin/telegram
+   * @desc    Platform-wide Telegram messaging and AI interaction metrics
    * @access  Private (Admin / Platform Owner)
    */
-  async getWhatsAppStats(req, res, next) {
+  async getTelegramStats(req, res, next) {
     try {
       const { sellers, messages, businesses } = await getAllPlatformEntities();
 
       const stats = sellers.map((s) => {
-        const sMessages = messages.filter((m) => m.sellerId === s.id);
+        const sMessages = messages.filter((m) => m.sellerId === s.id && m.channel === 'telegram');
         const business = businesses.find((b) => b.sellerId === s.id);
 
         return {
           sellerId: s.id,
           businessName: s.businessName,
           email: s.email,
-          businessPhone: (business && business.whatsappPhone) || '—',
-          whatsappConnected: !!(business && business.whatsappConnected),
+          botUsername: (business && business.telegramBotUsername) || '',
+          telegramConnected: !!(business && business.telegramConnected),
           totalMessages: sMessages.length,
           inbound: sMessages.filter((m) => m.direction === 'inbound').length,
           outbound: sMessages.filter((m) => m.direction === 'outbound').length,

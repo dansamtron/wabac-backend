@@ -108,8 +108,7 @@ async function runTests() {
       location: '15 Admiralty Way, Lekki Phase 1, Lagos',
       deliveryFee: 2500,
       description: 'Premium organic skincare and beauty essentials',
-      whatsappPhone: '+2348031234567',
-      whatsappConnected: true,
+      phone: '+2348031234567',
     };
 
     const resUpdateBiz = await fetch(`${baseUrl}/api/business`, {
@@ -121,7 +120,7 @@ async function runTests() {
       body: JSON.stringify(updatePayload),
     });
     const dataUpdatedBiz = await resUpdateBiz.json();
-    if (resUpdateBiz.status !== 200 || dataUpdatedBiz.deliveryFee !== 2500 || dataUpdatedBiz.whatsappConnected !== true) {
+    if (resUpdateBiz.status !== 200 || dataUpdatedBiz.deliveryFee !== 2500 || dataUpdatedBiz.phone !== '+2348031234567') {
       throw new Error(`PATCH /api/business failed: ${JSON.stringify(dataUpdatedBiz)}`);
     }
     console.log('  [PASS] PATCH /api/business updated settings successfully');

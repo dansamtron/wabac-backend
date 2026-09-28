@@ -1,6 +1,6 @@
 /**
  * Channel Message Model
- * Stores bidirectional WhatsApp/Telegram transcripts, delivery state, and AI logs.
+ * Stores bidirectional Telegram transcripts, delivery state, and AI logs.
  */
 
 const mongoose = require('mongoose');
@@ -14,8 +14,8 @@ const messageSchema = new mongoose.Schema(
     },
     channel: {
       type: String,
-      enum: ['whatsapp', 'telegram'],
-      default: 'whatsapp',
+      enum: ['telegram'],
+      default: 'telegram',
       required: true,
       index: true,
     },
@@ -24,12 +24,11 @@ const messageSchema = new mongoose.Schema(
     channelUsername: { type: String, default: '', trim: true },
     customerName: { type: String, default: '', trim: true },
 
-    // Telegram/Meta message id used to absorb webhook retries safely.
+    // Telegram message id used to absorb webhook retries safely.
     providerMessageId: { type: String, trim: true },
     providerUpdateId: { type: String, trim: true },
 
-    // Legacy/contact fields retained until WhatsApp Cloud removal in Phase D.
-    businessPhone: { type: String, default: '' },
+    // Phone is progressively attached after Telegram contact sharing.
     customerPhone: { type: String, default: '', index: true },
 
     direction: {

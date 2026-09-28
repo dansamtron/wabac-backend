@@ -1,6 +1,6 @@
 /**
  * Business Profile Service
- * Manages seller business settings, delivery parameters, bank info, and WhatsApp connection status
+ * Manages seller business settings, delivery parameters, bank info, and public share contacts
  */
 
 const mongoose = require('mongoose');
@@ -25,13 +25,6 @@ const UPDATABLE_FIELDS = [
   'bankName',
   'accountNumber',
   'accountName',
-  'whatsappPhone',
-  'whatsappConnected',
-  'whatsappVerifiedAt',
-  'whatsappPhoneNumberId',
-  'whatsappVerifyToken',
-  'whatsappAccessToken',
-  'whatsappWebhookVerified',
 ];
 
 const businessService = {
@@ -81,7 +74,7 @@ const businessService = {
   async getWithSecrets(sellerId) {
     if (!sellerId) return null;
     const business = await Business.findOne({ sellerId }).select(
-      '+whatsappAccessToken +telegramBotToken +telegramWebhookSecret'
+      '+telegramBotToken +telegramWebhookSecret'
     );
     return business ? business.toObject() : null;
   },

@@ -32,7 +32,7 @@ function presentOrder(order, storesBySeller) {
 
   return {
     ...json,
-    store: store ? { name: store.name, slug: store.slug, phone: store.whatsappPhone || store.phone || '' } : null,
+    store: store ? { name: store.name, slug: store.slug, phone: store.phone || '' } : null,
   };
 }
 

@@ -8,7 +8,7 @@ const mongoose = require('mongoose');
 const recipientSchema = new mongoose.Schema(
   {
     customerId: { type: String },
-    channel: { type: String, enum: ['telegram', 'whatsapp'], default: 'telegram' },
+    channel: { type: String, enum: ['telegram'], default: 'telegram' },
     channelUserId: { type: String, default: '' },
     handle: { type: String, default: '' },
     phone: { type: String, default: '' },
@@ -45,7 +45,7 @@ const campaignSchema = new mongoose.Schema(
     },
     channel: {
       type: String,
-      enum: ['telegram', 'whatsapp'],
+      enum: ['telegram'],
       default: 'telegram',
       index: true,
     },

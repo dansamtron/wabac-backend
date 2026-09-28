@@ -2,9 +2,8 @@
  * Transactional Notification Service
  *
  * Commerce events are rendered once and dispatched through a channel adapter.
- * There is deliberately no WhatsApp/Meta dependency here. Phase B delivers
- * storefront events through Brevo email; Phase C will register Telegram and
- * use the same event methods for bot-originated orders.
+ * Storefront events use Brevo email and bot-originated orders use the
+ * registered Telegram transport through the same provider-neutral boundary.
  */
 
 const Customer = require('../../models/Customer');
@@ -83,7 +82,7 @@ const notificationService = {
     if (order.source === 'manual') return skipped(EVENTS.ORDER_CREATED, 'manual_order');
 
     // Telegram-originated orders intentionally do not fall back to email: the
-    // bot transport added in Phase C owns that conversation and identity.
+    // bot transport owns that conversation and identity.
     if (order.source === 'telegram') {
       return dispatcher.dispatch({
         event: EVENTS.ORDER_CREATED,
@@ -221,7 +220,7 @@ const notificationService = {
     });
   },
 
-  // Exposed for Phase C and focused tests; commerce callers should use the
+  // Exposed for focused transport tests; commerce callers should use the
   // event-specific methods above.
   dispatcher,
   resolveOrderEmail,
