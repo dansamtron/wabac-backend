@@ -5,6 +5,8 @@
 
 const mongoose = require('mongoose');
 const Order = require('../../models/Order');
+const { AUTOMATIC_SOURCES } = require('../../models/Order');
+const { nextOrderNumber } = require('../../models/Counter');
 const { getEffectivePrice } = require('../../models/Product');
 const customerService = require('../customers/customerService');
 const productService = require('../products/productService');
@@ -30,7 +32,7 @@ const orderService = {
   /**
    * Create an order with authoritative price calculation and stock deduction
    */
-  async create(sellerId, payload, idempotencyKey) {
+  async create(sellerId, payload, idempotencyKey, options = {}) {
     if (!sellerId) {
       const err = new Error('Seller ID is required');
       err.statusCode = 400;
@@ -146,20 +148,34 @@ const orderService = {
 
     const total = subtotal + deliveryFee;
 
+    // Automatic checkout always starts unpaid. Neither a public storefront
+    // request nor an AI tool may assert that money was received; only the
+    // Paystack verification path may promote it to Paid. Manually logged orders
+    // use the separate, seller-authenticated manualOrderService.
+    const source = AUTOMATIC_SOURCES.includes(options.source) ? options.source : 'storefront';
+    const orderNumber = await nextOrderNumber(sellerId);
+
     const order = await Order.create({
       sellerId,
       customerId: customer.id,
       customerName,
       customerPhone,
       customerWhatsappId: customer.whatsappId || customerPhone,
+      source,
+      sourceChannel: '',
+      sourceNote: '',
+      enteredBy: '',
+      orderNumber,
       deliveryAddress: customerAddress,
       items: validatedItems,
       subtotal,
       deliveryFee,
       total,
-      paymentStatus: payload.paymentStatus || 'Pending',
+      paymentStatus: 'Pending',
+      paymentMethod: 'paystack',
       orderStatus: 'Pending',
-      paymentReference: payload.paymentReference || '',
+      paymentReference: '',
+      paidAt: null,
       idempotencyKey: idempotencyKey || undefined,
       shopperId: payload.shopperId || null,
     });
@@ -176,23 +192,118 @@ const orderService = {
   /**
    * List orders for a seller with status filtering and search
    */
-  async list(sellerId, { status, paymentStatus, search } = {}) {
+  async list(sellerId, { status, paymentStatus, source, sourceChannel, search, from, to } = {}) {
     if (!sellerId) throw new Error('Seller ID is required');
 
     const filter = { sellerId };
     if (status) filter.orderStatus = status;
     if (paymentStatus) filter.paymentStatus = paymentStatus;
+    if (source === 'automatic') filter.source = { $in: AUTOMATIC_SOURCES };
+    else if (source) filter.source = source;
+    if (sourceChannel) filter.sourceChannel = sourceChannel;
+
+    if (from || to) {
+      filter.createdAt = {};
+      if (from) {
+        const start = new Date(from);
+        if (!Number.isNaN(start.getTime())) filter.createdAt.$gte = start;
+      }
+      if (to) {
+        const end = new Date(to);
+        if (!Number.isNaN(end.getTime())) filter.createdAt.$lte = end;
+      }
+      if (Object.keys(filter.createdAt).length === 0) delete filter.createdAt;
+    }
+
     if (search) {
-      const q = escapeRegex(sanitize(search, 100));
+      const rawSearch = sanitize(search, 100);
+      const q = escapeRegex(rawSearch);
+      const numericReference = Number(rawSearch.replace(/^#/, ''));
       filter.$or = [
         { customerName: { $regex: q, $options: 'i' } },
         { customerPhone: { $regex: q, $options: 'i' } },
         { 'items.name': { $regex: q, $options: 'i' } },
+        { sourceNote: { $regex: q, $options: 'i' } },
       ];
+      if (Number.isInteger(numericReference) && numericReference > 0) {
+        filter.$or.push({ orderNumber: numericReference });
+      }
     }
 
     const orders = await Order.find(filter).sort({ createdAt: -1 });
     return orders.map((o) => o.toJSON());
+  },
+
+  /**
+   * Dashboard totals and source splits for the seller order-management page.
+   * Revenue means verified/recorded Paid orders, never merely created orders.
+   */
+  async getSummary(sellerId, { from, to } = {}) {
+    if (!sellerId) throw new Error('Seller ID is required');
+
+    const match = { sellerId };
+    if (from || to) {
+      match.createdAt = {};
+      if (from) {
+        const start = new Date(from);
+        if (!Number.isNaN(start.getTime())) match.createdAt.$gte = start;
+      }
+      if (to) {
+        const end = new Date(to);
+        if (!Number.isNaN(end.getTime())) match.createdAt.$lte = end;
+      }
+      if (Object.keys(match.createdAt).length === 0) delete match.createdAt;
+    }
+
+    const [result] = await Order.aggregate([
+      { $match: match },
+      {
+        $facet: {
+          totals: [
+            {
+              $group: {
+                _id: null,
+                orders: { $sum: 1 },
+                grossOrderValue: { $sum: '$total' },
+                paidRevenue: {
+                  $sum: { $cond: [{ $eq: ['$paymentStatus', 'Paid'] }, '$total', 0] },
+                },
+                outstanding: {
+                  $sum: { $cond: [{ $eq: ['$paymentStatus', 'Pending'] }, '$total', 0] },
+                },
+              },
+            },
+          ],
+          bySource: [
+            { $group: { _id: '$source', orders: { $sum: 1 }, value: { $sum: '$total' } } },
+            { $sort: { orders: -1 } },
+          ],
+          byStatus: [
+            { $group: { _id: '$orderStatus', orders: { $sum: 1 } } },
+            { $sort: { orders: -1 } },
+          ],
+          byPaymentStatus: [
+            { $group: { _id: '$paymentStatus', orders: { $sum: 1 }, value: { $sum: '$total' } } },
+            { $sort: { orders: -1 } },
+          ],
+        },
+      },
+    ]);
+
+    const totals = (result && result.totals && result.totals[0]) || {
+      orders: 0,
+      grossOrderValue: 0,
+      paidRevenue: 0,
+      outstanding: 0,
+    };
+    delete totals._id;
+
+    return {
+      totals,
+      bySource: (result && result.bySource) || [],
+      byStatus: (result && result.byStatus) || [],
+      byPaymentStatus: (result && result.byPaymentStatus) || [],
+    };
   },
 
   /**
@@ -232,8 +343,13 @@ const orderService = {
 
     logger.info('Order status updated:', { id, orderStatus });
     const orderJson = order.toJSON();
-    const ns = getNotificationService();
-    if (ns) ns.sendOrderStatusUpdate(orderJson, orderStatus).catch(() => {});
+    // Manually logged orders are records of conversations happening elsewhere;
+    // never surprise the merchant by auto-sending through an API channel. They
+    // can explicitly request a copy/share link from GET /:id/share.
+    if (orderJson.source !== 'manual') {
+      const ns = getNotificationService();
+      if (ns) ns.sendOrderStatusUpdate(orderJson, orderStatus).catch(() => {});
+    }
     return orderJson;
   },
 
@@ -251,6 +367,8 @@ const orderService = {
     if (!id || !mongoose.isValidObjectId(id)) throw notFound();
 
     const updates = { paymentStatus };
+    if (paymentStatus === 'Paid') updates.paidAt = new Date();
+    else if (paymentStatus === 'Pending' || paymentStatus === 'Failed') updates.paidAt = null;
     if (paymentReference) updates.paymentReference = paymentReference;
 
     const query = { _id: id };

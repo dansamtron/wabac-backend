@@ -6,7 +6,7 @@ High-performance, multi-tenant conversational commerce backend powering WhatsApp
 
 ## 🌟 Architecture & Phases
 
-The complete system architecture is implemented across 12 modular phases following domain-driven design, multi-tenant isolation, and resilient architectural standards:
+The system architecture is implemented across modular phases following domain-driven design, multi-tenant isolation, and resilient architectural standards:
 
 ### Phase 1: Base Architecture & Infrastructure
 - **Core Server**: Node.js & Express cleanly separated in `server.js` (no root `index.js`).
@@ -85,6 +85,14 @@ The complete system architecture is implemented across 12 modular phases followi
 - **NoSQL Injection Defense**: Automated detection and blocking of prohibited query operators (`$gt`, `$where`, `$ne`, etc.) across bodies, query parameters, and route parameters.
 - **Reliability & Health Probes**: Container liveness probe (`GET /health/live`) and deep readiness probe (`GET /health/ready`) tracking database status and heap memory usage.
 
+### Phase 14: Unified Seller Order Hub
+- **Manual Order Capture**: Authenticated sellers can log orders taken on Instagram, WhatsApp, Facebook, TikTok, phone calls, walk-ins, referrals, or any other external channel (`POST /api/orders/manual`).
+- **Clear Provenance**: Every order has a visible/indexed `source` (`storefront`, `telegram`, or `manual`); manual rows also carry `sourceChannel`, `sourceNote`, and the seller who entered them. One collection keeps revenue and customer reporting whole while badges and filters keep automatic/manual workflows distinct.
+- **Catalog + Custom Items**: A manual order can combine catalog products with negotiated prices and off-catalog free-text items. Automatic checkout remains price-authoritative and cannot use this seller-only path.
+- **Offline Payment Guard**: Sellers may record cash, bank transfer, POS, or other payment only for `source=manual` rows. Storefront/bot orders become Paid only through payment verification.
+- **Operations**: Per-seller references (`#00001`), expected delivery dates, notes, optional inventory deduction, source-split dashboard totals, source-aware CSV exports, and corrections with stock reconciliation.
+- **No-API Sharing**: `GET /api/orders/:id/share` returns copyable summary text and a pre-filled `wa.me` deep link. It never calls Meta, sends in the background, or requires an access token.
+
 ---
 
 ## 🛠️ Complete API Routes Directory
@@ -104,8 +112,13 @@ The complete system architecture is implemented across 12 modular phases followi
 | `POST` | `/api/products` | Create product with variants | Bearer Token |
 | `PATCH` | `/api/products/:id` | Update product details | Bearer Token |
 | `DELETE`| `/api/products/:id` | Remove product from catalog | Bearer Token |
-| `POST` | `/api/orders` | Create customer order (idempotent) | Bearer Token |
-| `GET` | `/api/orders` | List seller orders | Bearer Token |
+| `POST` | `/api/orders` | Storefront/customer checkout (idempotent) | Public / Optional session |
+| `GET` | `/api/orders` | List/filter seller orders (`source=manual\|automatic`) | Bearer Token |
+| `GET` | `/api/orders/summary` | Source/status/payment dashboard totals | Bearer Token |
+| `POST` | `/api/orders/manual` | Log a seller-entered external order | Bearer Token |
+| `PATCH` | `/api/orders/manual/:id` | Correct a manually entered order | Bearer Token |
+| `PATCH` | `/api/orders/manual/:id/payment` | Record offline payment on a manual order | Bearer Token |
+| `GET` | `/api/orders/:id/share` | Copyable summary + pre-filled `wa.me` link (no API send) | Bearer Token |
 | `PATCH` | `/api/orders/:id/status`| Update order status | Bearer Token |
 | `GET` | `/api/customers` | Seller customer list & metrics | Bearer Token |
 | `GET` | `/api/whatsapp/webhook` | Meta verification handshake | Public |
