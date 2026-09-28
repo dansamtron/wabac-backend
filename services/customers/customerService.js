@@ -73,6 +73,7 @@ const customerService = {
 
     const customer = await Customer.create({
       sellerId,
+      shopperId: payload.shopperId || null,
       name,
       phone,
       whatsappId,
@@ -94,15 +95,20 @@ const customerService = {
     const existing = await this.findByPhone(payload.phone, sellerId);
     if (existing) {
       const newAddress = payload.address ? sanitize(payload.address, 300) : '';
+      const updates = {};
+
       if (newAddress && !(existing.addresses || []).includes(newAddress)) {
-        const updated = await Customer.findByIdAndUpdate(
-          existing.id,
-          { $addToSet: { addresses: newAddress } },
-          { new: true }
-        );
-        return updated ? updated.toJSON() : existing;
+        updates.$addToSet = { addresses: newAddress };
       }
-      return existing;
+      // Link the CRM record to the buyer identity the first time we learn it
+      if (payload.shopperId && !existing.shopperId) {
+        updates.$set = { shopperId: payload.shopperId };
+      }
+
+      if (Object.keys(updates).length === 0) return existing;
+
+      const updated = await Customer.findByIdAndUpdate(existing.id, updates, { new: true });
+      return updated ? updated.toJSON() : existing;
     }
     return this.create(sellerId, payload);
   },

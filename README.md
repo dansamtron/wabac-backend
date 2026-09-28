@@ -221,6 +221,61 @@ Mongoose's `Duplicate schema index on {...}` startup warning. No database connec
 
 ---
 
+## 🛒 Buyer Identity (Progressive)
+
+Buyers never register and never hold a password. Guest checkout stays the default
+path — the storefront posts `POST /api/orders` with a `sellerId` and no session — and
+identity is only established when the buyer wants to *read data back* (order history,
+saved addresses). Two ways in, both friction-light:
+
+| Tier | How they got there | What it unlocks |
+| :--- | :--- | :--- |
+| **0 — Anonymous** | `deviceId` in the frontend | Browse, local cart, guest checkout |
+| **1 — Phone claimed** | Typed at checkout | Order placed; confirmation sent to that number |
+| **2 — Phone verified** | Tapped the tracking link in their WhatsApp confirmation, or entered a one-time code | Cross-store order history, saved addresses, profile |
+
+Verifying a number creates the global `Shopper` record and **claims** every guest order
+and per-seller `Customer` row carrying that phone, so a buyer's first sign-in already
+shows their full purchase history.
+
+### Buyer endpoints
+
+| Method | Endpoint | Description | Access |
+| :--- | :--- | :--- | :--- |
+| `POST` | `/api/shop/auth/request-otp` | Send a 6 digit code over WhatsApp (10 min TTL) | Public, rate limited |
+| `POST` | `/api/shop/auth/verify-otp` | Exchange code for a buyer session | Public, rate limited |
+| `POST` | `/api/shop/auth/magic` | Redeem a single-use tracking-link token | Public, rate limited |
+| `POST` | `/api/shop/auth/logout` | Clear the buyer session cookie | Public |
+| `GET` | `/api/shop/me` | Profile, stores shopped, saved addresses | Buyer session |
+| `PATCH` | `/api/shop/me` | Update display name / email | Buyer session |
+| `GET` | `/api/shop/me/orders` | Cross-store history (`?sellerId=` to filter) | Buyer session |
+| `GET` | `/api/shop/me/orders/:id` | Single order, ownership enforced | Buyer session |
+
+### Security model
+
+- **Separate audiences on a shared secret.** Every JWT carries a `typ` claim
+  (`seller` / `shopper`). `protect` rejects buyer tokens, `protectShopper` rejects seller
+  tokens, and a buyer session never populates `req.sellerId`. Tokens issued before this
+  claim existed are still treated as seller tokens.
+- **Separate cookie.** Buyer sessions use `shop_token`, so a merchant and a buyer can be
+  signed in in the same browser.
+- **Checkout binding.** With a verified session, the order is recorded against the
+  *verified* phone; `shopperId` in a request body is always discarded.
+- **Ownership on read.** History is filtered by `shopperId` **or** verified phone; another
+  buyer's order returns `404`.
+- **Magic links are single use**, expire after 7 days, and are redeemed over `POST` so
+  WhatsApp link previews cannot burn them. Codes expire in 10 minutes, allow 5 attempts,
+  and are rate limited per phone (60s cooldown) and per IP (10/hour).
+- Only hashes of codes and link tokens are stored; documents self-destruct via a TTL index.
+
+### Local testing without a WhatsApp Business account
+
+```bash
+SHOP_OTP_DEBUG=true npm run dev     # returns the code in the API response (never in production)
+```
+
+---
+
 ## 🧪 Testing
 
 The repository contains automated integration test suites across all 12 phases.

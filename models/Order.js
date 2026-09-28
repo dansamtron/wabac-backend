@@ -31,6 +31,12 @@ const orderSchema = new mongoose.Schema(
       required: [true, 'Customer ID is required'],
       index: true,
     },
+    // Set when the buyer checked out with a verified shopper session, or
+    // backfilled the first time they verify their phone number.
+    shopperId: {
+      type: String,
+      default: null,
+    },
     customerName: {
       type: String,
       required: true,
@@ -109,6 +115,9 @@ const orderSchema = new mongoose.Schema(
 
 // High performance compound indexes
 orderSchema.index({ sellerId: 1, createdAt: -1 });
+// Buyer-facing order history lookups
+orderSchema.index({ shopperId: 1, createdAt: -1 });
+orderSchema.index({ customerPhone: 1, createdAt: -1 });
 orderSchema.index({ sellerId: 1, orderStatus: 1 });
 orderSchema.index({ sellerId: 1, paymentStatus: 1 });
 

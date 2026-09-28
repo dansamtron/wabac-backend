@@ -15,6 +15,46 @@ const Business = require('../../models/Business');
 const { sanitize, normalizePhone } = require('../../utils/validators');
 const logger = require('../../utils/logger');
 
+/**
+ * Low level Meta Graph delivery. Returns true when WhatsApp accepted the message.
+ * Never throws: callers decide how a delivery failure should surface.
+ */
+async function deliverViaGraph({ to, body, phoneNumberId, accessToken }) {
+  if (!phoneNumberId || !accessToken) return false;
+
+  try {
+    const apiUrl = process.env.WHATSAPP_API_URL || 'https://graph.facebook.com';
+    const apiVersion = process.env.WHATSAPP_API_VERSION || 'v21.0';
+    const url = `${apiUrl}/${apiVersion}/${phoneNumberId}/messages`;
+
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        messaging_product: 'whatsapp',
+        recipient_type: 'individual',
+        to: String(to).replace('+', ''),
+        type: 'text',
+        text: { preview_url: false, body },
+      }),
+    });
+
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      logger.warn('Meta WhatsApp API call failed:', errData);
+      return false;
+    }
+
+    return true;
+  } catch (err) {
+    logger.error('WhatsApp API network error:', { error: err.message });
+    return false;
+  }
+}
+
 const whatsappService = {
   /**
    * Get WhatsApp configuration for seller
@@ -115,35 +155,7 @@ const whatsappService = {
     const accessToken = (business && business.whatsappAccessToken) || process.env.WHATSAPP_ACCESS_TOKEN;
 
     // If live credentials exist, send via Meta Graph API
-    if (phoneNumberId && accessToken) {
-      try {
-        const apiUrl = process.env.WHATSAPP_API_URL || 'https://graph.facebook.com';
-        const apiVersion = process.env.WHATSAPP_API_VERSION || 'v21.0';
-        const url = `${apiUrl}/${apiVersion}/${phoneNumberId}/messages`;
-
-        const res = await fetch(url, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${accessToken}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            messaging_product: 'whatsapp',
-            recipient_type: 'individual',
-            to: cleanTo.replace('+', ''),
-            type: 'text',
-            text: { preview_url: false, body: cleanBody },
-          }),
-        });
-
-        if (!res.ok) {
-          const errData = await res.json().catch(() => ({}));
-          logger.warn('Meta WhatsApp API call failed:', errData);
-        }
-      } catch (err) {
-        logger.error('WhatsApp API network error:', { error: err.message });
-      }
-    }
+    await deliverViaGraph({ to: cleanTo, body: cleanBody, phoneNumberId, accessToken });
 
     // Record outbound message in transcript
     return messageService.saveMessage({
@@ -155,6 +167,35 @@ const whatsappService = {
       deterministic: false,
       status: 'sent',
     });
+  },
+
+  /**
+   * Deliver a platform system message (login codes, magic links) to a phone number.
+   *
+   * Unlike sendOutbound this is intentionally NOT persisted to the seller's
+   * conversation transcript: authentication traffic is not merchant CRM data.
+   * Falls back to the platform's own WhatsApp number when the seller has none.
+   *
+   * @returns {Promise<boolean>} true when WhatsApp accepted the message
+   */
+  async sendSystemNotification({ to, body, sellerId = '' }) {
+    if (!to || !body) return false;
+
+    const cleanTo = normalizePhone(to) || String(to).trim();
+    const cleanBody = sanitize(body, 1000);
+
+    let phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+    let accessToken = process.env.WHATSAPP_ACCESS_TOKEN;
+
+    if (sellerId) {
+      const business = await businessService.getWithSecrets(sellerId);
+      if (business && business.whatsappPhoneNumberId && business.whatsappAccessToken) {
+        phoneNumberId = business.whatsappPhoneNumberId;
+        accessToken = business.whatsappAccessToken;
+      }
+    }
+
+    return deliverViaGraph({ to: cleanTo, body: cleanBody, phoneNumberId, accessToken });
   },
 
   /**

@@ -24,6 +24,7 @@ const analyticsRoutes = require('./analyticsRoutes');
 const payoutRoutes = require('./payoutRoutes');
 const campaignRoutes = require('./campaignRoutes');
 const storefrontRoutes = require('./storefrontRoutes');
+const shopRoutes = require('./shopRoutes');
 
 // Root & System Health
 router.use('/', rootRoutes);
@@ -49,6 +50,7 @@ router.use('/api/ai', aiRoutes);
 router.use('/api/analytics', analyticsRoutes);
 router.use('/api/payouts', payoutRoutes);
 router.use('/api/campaigns', campaignRoutes);
+router.use('/api/shop', shopRoutes);
 router.use('/api/storefront', storefrontRoutes);
 router.use('/api/store', storefrontRoutes);
 router.use('/api/admin', platformRoutes);

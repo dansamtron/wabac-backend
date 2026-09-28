@@ -12,6 +12,12 @@ const customerSchema = new mongoose.Schema(
       required: [true, 'Seller ID is required for tenant isolation'],
       index: true,
     },
+    // Links this per-seller CRM record to the global phone-verified buyer identity
+    shopperId: {
+      type: String,
+      default: null,
+      index: true,
+    },
     name: {
       type: String,
       required: [true, 'Customer name is required'],

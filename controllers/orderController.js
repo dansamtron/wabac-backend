@@ -45,7 +45,19 @@ async function createOrder(req, res, next) {
     const sellerId = req.sellerId || req.body.sellerId;
     const idempotencyKey = req.headers['x-idempotency-key'] || req.body.idempotencyKey;
 
-    const order = await orderService.create(sellerId, req.body, idempotencyKey);
+    // A client can never assert who the buyer is: shopperId comes from the
+    // verified session only, and a verified buyer's phone overrides the payload
+    // so orders cannot be stapled onto someone else's history.
+    const payload = { ...req.body };
+    delete payload.shopperId;
+
+    if (req.shopper) {
+      payload.shopperId = req.shopperId;
+      payload.customer = { ...(payload.customer || {}), phone: req.shopper.phone };
+      if (!payload.customer.name) payload.customer.name = req.shopper.name || 'Valued Customer';
+    }
+
+    const order = await orderService.create(sellerId, payload, idempotencyKey);
     res.status(201).json(order);
   } catch (error) {
     next(error);

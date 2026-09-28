@@ -27,7 +27,7 @@ const notificationService = {
         .map((i) => `• ${i.name} (x${i.quantity}) - ${currency}${i.subtotal.toLocaleString()}`)
         .join('\n');
 
-      const messageBody = [
+      const messageLines = [
         `🛍️ *Order Confirmed!*`,
         `Hello ${order.customerName || 'Valued Customer'}, thank you for shopping with *${storeName}*!`,
         ``,
@@ -42,7 +42,22 @@ const notificationService = {
         `*Payment Status:* ${order.paymentStatus}`,
         ``,
         `We are preparing your package and will keep you updated. Reply here anytime if you have questions!`,
-      ].join('\n');
+      ];
+
+      // Single-use link that signs the buyer in to their order history
+      try {
+        const shopperAuthService = require('../shop/shopperAuthService');
+        const magic = await shopperAuthService.createMagicLink({
+          phone: order.customerPhone,
+          sellerId: order.sellerId,
+          orderId: order.id,
+        });
+        messageLines.push('', `📦 Track this order and see your order history: ${magic.url}`);
+      } catch (linkErr) {
+        logger.warn('Could not attach tracking link to order confirmation:', { error: linkErr.message });
+      }
+
+      const messageBody = messageLines.join('\n');
 
       const whatsappService = getWhatsAppService();
       const sent = await whatsappService.sendOutbound({

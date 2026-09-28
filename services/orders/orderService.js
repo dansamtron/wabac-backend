@@ -69,6 +69,7 @@ const orderService = {
       whatsappId: payload.customer.whatsappId || customerPhone,
       address: customerAddress,
       email: payload.customer.email,
+      shopperId: payload.shopperId || null,
     });
 
     // Validate and freeze authoritative prices for each order item
@@ -160,6 +161,7 @@ const orderService = {
       orderStatus: 'Pending',
       paymentReference: payload.paymentReference || '',
       idempotencyKey: idempotencyKey || undefined,
+      shopperId: payload.shopperId || null,
     });
 
     await customerService.incrementOnOrder(customer.id, sellerId, total);
