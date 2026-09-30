@@ -3,8 +3,11 @@
  * Tests AI Sales Agent, Function Tools Calling Loop, Inventory Checks, and Order Automation
  */
 
+process.env.NODE_ENV = 'test';
+
 const http = require('http');
 const app = require('../server');
+const { startFakePaystack } = require('./helpers/fakePaystack');
 const { setupTestDb, teardownTestDb } = require('./helpers/testDb');
 const getOrderTool = require('../services/ai/tools/getOrder');
 const createPaymentTool = require('../services/ai/tools/createPayment');
@@ -16,11 +19,15 @@ async function runTests() {
   console.log('=== Running Phase 6 Verification Tests ===');
 
   await setupTestDb();
+  const paystack = await startFakePaystack({ initialStatus: 'pending' });
+  process.env.PAYSTACK_SECRET_KEY = 'sk_test_phase6';
+  process.env.PAYSTACK_API_BASE_URL = paystack.baseUrl;
 
   const server = http.createServer(app);
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const port = server.address().port;
   const baseUrl = `http://127.0.0.1:${port}`;
+  process.env.API_PUBLIC_URL = baseUrl;
 
   try {
     // 1. Setup Seller & Catalog
@@ -141,11 +148,27 @@ async function runTests() {
         body: 'PAY',
       }),
     });
-    const payData = await resPay.json();
-    if (!payData.reply.includes('Payment link ready') || !payData.reply.includes('checkout.paystack.com')) {
+    const payPrompt = await resPay.json();
+    if (payPrompt.intent !== 'payment_email_required') {
+      throw new Error(`AI did not collect a real Paystack email: ${JSON.stringify(payPrompt)}`);
+    }
+    const resPayEmail = await fetch(`${baseUrl}/api/ai/chat`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        sellerId: seller.id,
+        customerPhone,
+        body: 'buyer@example.com',
+      }),
+    });
+    const payData = await resPayEmail.json();
+    if (!payData.reply.includes('Payment link ready') || !payData.reply.includes('checkout.paystack.test')) {
       throw new Error(`AI payment creation failed: ${JSON.stringify(payData)}`);
     }
-    console.log('  [PASS] AI executed createPayment tool and provided Paystack checkout link');
+    console.log('  [PASS] AI collected email and provided the real Paystack checkout link');
 
     // 7. Tool scoping: a store's agent must not expose one customer's order to another
     console.log('Testing AI tool ownership scoping...');
@@ -217,7 +240,11 @@ async function runTests() {
 
     console.log('=== All Phase 6 Tests Passed Successfully! ===');
   } finally {
-    server.close();
+    await new Promise((resolve) => server.close(resolve));
+    await paystack.close();
+    delete process.env.PAYSTACK_SECRET_KEY;
+    delete process.env.PAYSTACK_API_BASE_URL;
+    delete process.env.API_PUBLIC_URL;
     await teardownTestDb();
   }
 }

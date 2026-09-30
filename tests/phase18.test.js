@@ -85,10 +85,46 @@ function fixtureTools(overrides = {}) {
       deliveryFee: 1500,
       deliveryAddress: args.deliveryAddress,
     }),
+    listOrders: async () => [{
+      id: '507f1f77bcf86cd799439011',
+      reference: '#00001',
+      orderNumber: 1,
+      orderStatus: 'Pending',
+      paymentStatus: 'Pending',
+      total: 21500,
+      items: [{ name: 'Sneakers', quantity: 2 }],
+    }],
+    getOrder: async (sellerId, args) => {
+      const reference = String(args.orderId);
+      const scenarios = {
+        '#2': { orderStatus: 'Processing', paymentStatus: 'Paid' },
+        '#3': { orderStatus: 'Shipped', paymentStatus: 'Pending' },
+        '#4': { orderStatus: 'Cancelled', paymentStatus: 'Refunded' },
+      };
+      const status = scenarios[reference] || { orderStatus: 'Pending', paymentStatus: 'Pending' };
+      return {
+        id: reference.startsWith('#') ? '507f1f77bcf86cd799439011' : reference,
+        reference: reference.startsWith('#') ? reference : '#00001',
+        orderNumber: Number(reference.replace(/\D/g, '')) || 1,
+        ...status,
+        total: 21500,
+        deliveryFee: 1500,
+        deliveryAddress: 'heaven',
+        items: [{ name: 'Sneakers', quantity: 2 }],
+      };
+    },
+    cancelOrder: async () => ({
+      id: '507f1f77bcf86cd799439011',
+      reference: '#00001',
+      orderStatus: 'Cancelled',
+      paymentStatus: 'Pending',
+      inventoryRestored: true,
+    }),
     createPayment: async () => ({
       amount: 21500,
       reference: 'PSK_TEST',
-      authorization_url: 'https://checkout.paystack.com/test',
+      authorization_url: 'https://checkout.paystack.test/test',
+      reused: true,
     }),
     getBusinessInformation: async () => ({
       deliveryInfo: '1-3 days',
@@ -196,8 +232,12 @@ async function main() {
     assert.strictEqual(result.orderId, 'order-123456');
 
     result = await agent.run(runInput('PAY', { customerPhone: '+2348012345678' }));
+    assert.strictEqual(result.intent, 'payment_email_required');
+
+    result = await agent.run(runInput('sam@example.com', { customerPhone: '+2348012345678' }));
     assert.strictEqual(result.intent, 'payment_ready');
-    assert(result.reply.includes('checkout.paystack.com/test'));
+    assert.strictEqual(result.paymentReused, true);
+    assert(result.reply.includes('checkout.paystack.test/test'));
   });
 
   await test('The reported comma-separated example can reach confirmation without an exact sentence match', async () => {
@@ -245,6 +285,52 @@ async function main() {
     result = await agent.run(runInput('2', { sessionKey: 'choice-session' }));
     assert.strictEqual(selectedProduct, 'loafers');
     assert.strictEqual(result.intent, 'quantity_required');
+  });
+
+  await test('Order recovery lists, tracks, resumes, and explicitly cancels owned orders', async () => {
+    const sessions = memorySessions();
+    const agent = createDeterministicAgent({ tools: fixtureTools(), sessions });
+    const input = { customerPhone: '+2348012345678', sessionKey: 'recovery-session' };
+
+    let result = await agent.run(runInput('MY ORDERS', input));
+    assert.strictEqual(result.intent, 'orders_listed');
+    assert(result.reply.includes('#00001'));
+
+    result = await agent.run(runInput('TRACK #00001', input));
+    assert.strictEqual(result.intent, 'order_tracked');
+    assert(result.reply.includes('Pending'));
+
+    // A human reference restores lastOrderId even without an earlier draft.
+    result = await agent.run(runInput('RESUME #00001', { ...input, sessionKey: 'fresh-recovery-session' }));
+    assert.strictEqual(result.intent, 'order_resumed');
+
+    result = await agent.run(runInput('CANCEL ORDER #00001', input));
+    assert.strictEqual(result.intent, 'cancellation_confirmation_required');
+
+    result = await agent.run(runInput('YES', input));
+    assert.strictEqual(result.intent, 'order_cancelled');
+    assert(result.reply.includes('Reserved stock was returned'));
+  });
+
+  await test('Recovery reports paid, advanced, cancelled, and refunded outcomes safely', async () => {
+    const agent = createDeterministicAgent({ tools: fixtureTools(), sessions: memorySessions() });
+    const input = { customerPhone: '+2348012345678', sessionKey: 'safe-outcomes' };
+
+    let result = await agent.run(runInput('TRACK #00002', input));
+    assert.strictEqual(result.intent, 'order_tracked');
+    assert(result.reply.includes('Payment is confirmed'));
+    assert(result.reply.includes('Processing'));
+
+    result = await agent.run(runInput('PAY #00003', input));
+    assert.strictEqual(result.intent, 'payment_requires_seller');
+    assert(result.reply.includes('Shipped'));
+
+    result = await agent.run(runInput('TRACK #00004', input));
+    assert.strictEqual(result.intent, 'order_tracked');
+    assert(result.reply.includes('refunded'));
+
+    result = await agent.run(runInput('CANCEL ORDER #00002', input));
+    assert.strictEqual(result.intent, 'order_not_cancellable');
   });
 
   await test('Conversation session schema has tenant uniqueness and automatic expiry', () => {

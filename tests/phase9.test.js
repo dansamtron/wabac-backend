@@ -3,8 +3,11 @@
  * Tests Seller Analytics, Sales Trends, Top Products, Payout/Settlement Engine, Bank Resolution, and CSV Exports
  */
 
+process.env.NODE_ENV = 'test';
+
 const http = require('http');
 const app = require('../server');
+const { startFakePaystack } = require('./helpers/fakePaystack');
 const { setupTestDb, teardownTestDb, createAdminAccount } = require('./helpers/testDb');
 const { generateToken } = require('../utils/generateToken');
 
@@ -12,11 +15,15 @@ async function runTests() {
   console.log('=== Running Phase 9 Verification Tests ===');
 
   await setupTestDb();
+  const paystack = await startFakePaystack();
+  process.env.PAYSTACK_SECRET_KEY = 'sk_test_phase9';
+  process.env.PAYSTACK_API_BASE_URL = paystack.baseUrl;
 
   const server = http.createServer(app);
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const port = server.address().port;
   const baseUrl = `http://127.0.0.1:${port}`;
+  process.env.API_PUBLIC_URL = baseUrl;
 
   try {
     // 1. Setup Seller and Admin
@@ -335,7 +342,11 @@ async function runTests() {
     console.log('  [PASS] CSV export of Orders and Financial Revenue ledger generated successfully');
 
   } finally {
-    server.close();
+    await new Promise((resolve) => server.close(resolve));
+    await paystack.close();
+    delete process.env.PAYSTACK_SECRET_KEY;
+    delete process.env.PAYSTACK_API_BASE_URL;
+    delete process.env.API_PUBLIC_URL;
     await teardownTestDb();
   }
 
