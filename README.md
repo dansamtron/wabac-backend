@@ -15,7 +15,7 @@ The system architecture is implemented across modular phases following domain-dr
 - **Validation**: Reusable payload validation schemas and utilities (`utils/validators.js`, `utils/jwt.js`).
 
 ### Phase 2: Seller Authentication & Multi-Tenant Business Profiles
-- **Authentication**: JWT token generation (`/api/auth/register`, `/api/auth/login`, `/api/auth/me`).
+- **Authentication**: JWT token generation (`/api/auth/register`, `/api/auth/login`, `/api/auth/me`) with durable httpOnly browser sessions. Production cookies use `Secure; SameSite=None; Partitioned` for credentialed storefront/API requests, so responsive remounts and page reloads do not discard login state.
 - **Multi-Tenant Protection**: RBAC and tenant authorization guards (`middleware/authMiddleware.js`).
 - **Business Profile**: Store profile, public share contact, currency, and delivery policies (`/api/business`, `/api/sellers/:id`).
 
@@ -422,4 +422,5 @@ node tests/phase16.test.js   # Telegram adapter contracts; no MongoDB required
 node tests/phase17.test.js   # removed-provider/share-link contracts; no MongoDB required
 node tests/phase18.test.js   # deterministic commerce + order recovery; no MongoDB required
 node tests/phase19.test.js   # Paystack security + recovery contracts; no MongoDB required
+node tests/phase20.test.js   # durable responsive browser sessions; no MongoDB required
 ```
