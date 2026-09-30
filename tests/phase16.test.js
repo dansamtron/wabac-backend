@@ -163,6 +163,60 @@ async function main() {
     }
   });
 
+  await test('Verified contact resumes a saved deterministic checkout', async () => {
+    let resumedContext;
+    let sent;
+    const restoreMessages = patch(messageService, {
+      findProviderMessage: async () => null,
+      getRecentHistory: async () => [],
+      saveMessage: async (input) => ({ id: `${input.direction}-1`, ...input }),
+    });
+    const restoreCustomers = patch(customerService, {
+      upsertChannelIdentity: async () => ({ id: 'customer-1', phone: '', email: '' }),
+      attachPhoneToIdentity: async () => ({
+        id: 'customer-1',
+        phone: '+2348012345678',
+        email: '',
+      }),
+    });
+    const restoreAi = patch(aiService, {
+      resumeAfterContact: async (input) => {
+        resumedContext = input;
+        return { reply: 'Order Summary: Sneakers x2. Reply YES.', toolCalls: [] };
+      },
+    });
+    const restoreApi = patch(telegramApi, {
+      sendText: async (token, payload) => {
+        sent = payload;
+        return [{ message_id: 3 }];
+      },
+    });
+    try {
+      await telegramService.handleUpdate({
+        business: { sellerId: 'seller-1', telegramBotId: '444', telegramBotToken: 'token' },
+        update: {
+          update_id: 111,
+          message: {
+            message_id: 22,
+            from: { id: 123, first_name: 'Ada' },
+            chat: { id: 123, type: 'private' },
+            contact: { user_id: 123, phone_number: '+2348012345678' },
+          },
+        },
+      });
+      assert.strictEqual(resumedContext.customerPhone, '+2348012345678');
+      assert.strictEqual(resumedContext.channelUserId, '123');
+      assert(sent.text.includes('Phone number saved securely'));
+      assert(sent.text.includes('Order Summary'));
+      assert.strictEqual(sent.replyMarkup.remove_keyboard, true);
+    } finally {
+      restoreApi();
+      restoreAi();
+      restoreCustomers();
+      restoreMessages();
+    }
+  });
+
   await test('AI receives exact Telegram bot and user identity context', async () => {
     let context;
     const restoreMessages = patch(messageService, {
