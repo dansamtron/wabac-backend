@@ -4,6 +4,8 @@
 
 const orderService = require('../../orders/orderService');
 const paymentService = require('../../payments/paymentService');
+const { requireOrderAccess } = require('../toolGuards');
+const { isEmail } = require('../../../utils/validators');
 
 const definition = {
   type: 'function',
@@ -27,11 +29,14 @@ const definition = {
   },
 };
 
-async function execute(sellerId, args) {
+async function execute(sellerId, args, context = {}) {
   if (!args || !args.orderId) throw new Error('orderId is required');
 
   const order = await orderService.getById(args.orderId, sellerId);
   if (!order) throw new Error(`Order not found: ${args.orderId}`);
+
+  // Never generate a payment link (or expose an order total) for someone else
+  requireOrderAccess(order, context, args.orderId);
 
   if (order.paymentStatus === 'Paid') {
     return {
@@ -41,9 +46,16 @@ async function execute(sellerId, args) {
     };
   }
 
-  const email = args.email || `${order.customerPhone.replace(/[^0-9]/g, '')}@wabac.ng`;
+  if (order.orderStatus === 'Cancelled') throw new Error('Cancelled orders cannot be paid');
 
-  const { reference, authorization_url, transaction } = await paymentService.initialize({
+  const email = String(args.email || order.customerEmail || context.customerEmail || '').trim().toLowerCase();
+  if (!isEmail(email)) {
+    const error = new Error('A valid email address is required to open Paystack checkout.');
+    error.code = 'PAYMENT_EMAIL_REQUIRED';
+    throw error;
+  }
+
+  const { reference, authorization_url, transaction, reused, alreadyPaid } = await paymentService.initialize({
     orderId: order.id,
     sellerId,
     amount: order.total,
@@ -52,12 +64,21 @@ async function execute(sellerId, args) {
     deliveryFee: order.deliveryFee,
   });
 
+  if (alreadyPaid) {
+    return {
+      alreadyPaid: true,
+      reference,
+      message: 'Paystack has confirmed payment for this order.',
+    };
+  }
+
   return {
     reference,
     authorization_url,
     amount: order.total,
     currency: 'NGN',
     transaction,
+    reused: Boolean(reused),
   };
 }
 

@@ -1,6 +1,4 @@
-/**
- * AI Tool: getOrder
- */
+/** Buyer-scoped order tracking tool. */
 
 const orderService = require('../../orders/orderService');
 
@@ -8,13 +6,14 @@ const definition = {
   type: 'function',
   function: {
     name: 'getOrder',
-    description: 'Fetch real-time order status, items, tracking, and payment verification state by order ID.',
+    description:
+      'Fetch status and payment details for an order owned by the buyer in this conversation. Accepts an ObjectId or reference such as #00012.',
     parameters: {
       type: 'object',
       properties: {
         orderId: {
           type: 'string',
-          description: 'The unique order ID (e.g. ord_...)',
+          description: 'Order ObjectId or human reference such as #00012',
         },
       },
       required: ['orderId'],
@@ -22,21 +21,24 @@ const definition = {
   },
 };
 
-async function execute(sellerId, args) {
-  if (!args || !args.orderId) throw new Error('orderId is required');
-  const order = await orderService.getById(args.orderId, sellerId);
+async function execute(sellerId, args, context = {}) {
+  if (!args || !args.orderId) throw new Error('Order reference is required');
+  const order = await orderService.resolveForCounterparty(sellerId, args.orderId, context);
   return {
     id: order.id,
+    reference: order.reference,
+    orderNumber: order.orderNumber,
     orderStatus: order.orderStatus,
     paymentStatus: order.paymentStatus,
+    paymentReference: order.paymentReference || '',
     items: order.items,
+    subtotal: order.subtotal,
+    deliveryFee: order.deliveryFee,
     total: order.total,
     deliveryAddress: order.deliveryAddress,
     createdAt: order.createdAt,
+    cancelledAt: order.cancelledAt || null,
   };
 }
 
-module.exports = {
-  definition,
-  execute,
-};
+module.exports = { definition, execute };
